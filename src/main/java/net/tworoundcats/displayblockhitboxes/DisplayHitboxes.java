@@ -205,7 +205,7 @@ public final class DisplayHitboxes {
 
     private static boolean sameContent(Object a, Object b) {
         if (a instanceof ItemStack x && b instanceof ItemStack y) {
-            return x.getItem() == y.getItem() && Objects.equals(x.getNbt(), y.getNbt());
+            return ItemStack.areItemsAndComponentsEqual(x, y);
         }
         return Objects.equals(a, b);
     }

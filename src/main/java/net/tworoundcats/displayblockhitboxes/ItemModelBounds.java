@@ -11,7 +11,7 @@ import net.minecraft.client.texture.SpriteContents;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.component.ComponentMap;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.random.Random;
 import net.minecraft.util.shape.VoxelShape;
@@ -23,7 +23,7 @@ import org.joml.Quaternionf;
 import java.util.concurrent.TimeUnit;
 
 public final class ItemModelBounds {
-    private record Key(Item item, NbtCompound nbt) {}
+    private record Key(Item item, ComponentMap components) {}
 
     private static final Cache<Key, VoxelShape> CACHE = CacheBuilder.newBuilder()
             .maximumSize(512)
@@ -33,8 +33,7 @@ public final class ItemModelBounds {
     private ItemModelBounds() {}
 
     public static VoxelShape getShape(World world, ItemStack stack) {
-        NbtCompound nbt = stack.getNbt();
-        Key key = new Key(stack.getItem(), nbt == null ? null : nbt.copy());
+        Key key = new Key(stack.getItem(), stack.copy().getComponents());
 
         try {
             return CACHE.get(key, () -> computeShape(world, stack));

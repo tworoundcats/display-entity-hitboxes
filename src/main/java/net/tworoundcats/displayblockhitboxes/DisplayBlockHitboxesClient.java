@@ -1,4 +1,5 @@
 package net.tworoundcats.displayblockhitboxes;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
@@ -116,7 +117,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
                 last.put(entity.getUuid(), now);
 
                 boolean wasDisabled = entity.getCommandTags().contains("deh_no_collision");
-                if (wasDisabled) entity.removeScoreboardTag("deh_no_collision");
+                if (wasDisabled) entity.removeCommandTag("deh_no_collision");
                 else entity.addCommandTag("deh_no_collision");
 
                 if (world.isClient) {
@@ -135,7 +136,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         Entity cam = mc.getCameraEntity();
         if (cam == null) return;
 
-        double entityReach = mc.interactionManager.hasExtendedReach() ? 6.0 : 3.0;
+        double entityReach = mc.player.getEntityInteractionRange();
         Vec3d eye = cam.getCameraPosVec(tickDelta);
         Vec3d end = eye.add(cam.getRotationVec(tickDelta).multiply(entityReach));
 

@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
-    @Inject(method = "updateTargetedEntity", at = @At("RETURN"))
+    @Inject(method = "updateCrosshairTarget", at = @At("RETURN"))
     private void dbh$pickDisplays(float tickDelta, CallbackInfo ci) {
         DisplayBlockHitboxesClient.pick(tickDelta);
     }
