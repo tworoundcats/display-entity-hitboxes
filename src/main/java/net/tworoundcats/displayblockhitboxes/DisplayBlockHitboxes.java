@@ -15,7 +15,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 
 public class DisplayBlockHitboxes implements ModInitializer {
-    public static final Identifier SYNC_COLLISION = new Identifier("displayblockhitboxes", "sync_collision");
+    public static final Identifier SYNC_COLLISION = Identifier.of("displayblockhitboxes", "sync_collision");
     private static final java.util.Map<java.util.UUID, Long> LAST_TOGGLE_SERVER = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Override

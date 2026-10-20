@@ -6,6 +6,7 @@
     "BlockDisplayEntityInvoker",
     "DisplayEntityAccessor",
     "EntityCanHitMixin",
+    "EntityStepMixin",
     "EntityViewMixin",
     "GameRendererMixin",
     "ItemDisplayEntityAccessor"

@@ -15,7 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class EntityRenderDispatcherMixin {
 
     @Inject(method = "renderHitbox", at = @At("HEAD"), cancellable = true)
-    private static void dbh$cancelDefaultHitbox(MatrixStack matrices, VertexConsumer vertices, Entity entity, float tickDelta, CallbackInfo ci) {
+    private static void dbh$cancelDefaultHitbox(MatrixStack matrices, VertexConsumer vertices, Entity entity, float tickDelta, float red, float green, float blue, CallbackInfo ci) {
         if (entity instanceof DisplayEntity display && DisplayHitboxes.isTargetable(display)) {
             ci.cancel();
         }
