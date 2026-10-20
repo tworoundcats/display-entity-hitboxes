@@ -125,7 +125,6 @@ public final class DisplayHitboxes {
         return LightmapTextureManager.pack(block, sky);
     }
 
-    // Removes random offset on stuff like bamboo or flowers to keep the hitbox accurate
     public static VoxelShape removeModelOffset(BlockState state, VoxelShape shape) {
         Vec3d o = state.getModelOffset(EmptyBlockView.INSTANCE, BlockPos.ORIGIN);
         if (o.x == 0.0 && o.y == 0.0 && o.z == 0.0) return shape;
@@ -151,7 +150,6 @@ public final class DisplayHitboxes {
 
             VoxelShape shape;
             if (CLIENT && DisplayHitboxConfig.get().accurateHitboxes) {
-                // Extracts exact pixel from block models
                 shape = BlockModelBounds.getShape(state);
             } else {
                 shape = forPicking
@@ -234,7 +232,6 @@ public final class DisplayHitboxes {
             this.shapeTransform = shapeTransform;
         }
 
-        // shape + inverse used by the crosshair raycast, built once per change
         ShapeData pickData(DisplayEntity d) {
             if (!pickReady) {
                 ShapeData p = getAccurateShape(d, true);
@@ -281,7 +278,7 @@ public final class DisplayHitboxes {
         if (data != null && !data.shape().isEmpty()) {
             shapeTransform = new Matrix4f(data.transform());
             List<Box> out = new ArrayList<>();
-            for (Box b : data.shape().getBoundingBoxes()) ObbBoxes.decompose(b, data.transform(), out);
+            ObbBoxes.decompose(data.shape().getBoundingBoxes(), data.transform(), out);
             boxes = List.copyOf(out);
             double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
             double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
@@ -310,6 +307,11 @@ public final class DisplayHitboxes {
     }
 
     private static final Cache<DisplayEntity, Motion> MOTION = CacheBuilder.newBuilder().weakKeys().build();
+
+    public static void clearCache() {
+        COLLISION_CACHE.invalidateAll();
+        MOTION.invalidateAll();
+    }
 
     public static Motion motion(DisplayEntity d, long tick) {
         Motion m = MOTION.getIfPresent(d);

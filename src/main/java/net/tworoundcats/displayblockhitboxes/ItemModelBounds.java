@@ -32,6 +32,10 @@ public final class ItemModelBounds {
 
     private ItemModelBounds() {}
 
+    public static void clearCache() {
+        CACHE.invalidateAll();
+    }
+
     public static VoxelShape getShape(World world, ItemStack stack) {
         Key key = new Key(stack.getItem(), stack.copy().getComponents());
 

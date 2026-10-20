@@ -15,6 +15,9 @@
     ],
     "client": [
       "net.tworoundcats.displayblockhitboxes.DisplayBlockHitboxesClient"
+    ],
+    "modmenu": [
+      "net.tworoundcats.displayblockhitboxes.compat.DisplayBlockHitboxesModMenu"
     ]
   },
   "mixins": [
@@ -22,8 +25,12 @@
   ],
   "depends": {
     "fabricloader": ">=0.16.10",
-    "minecraft": ">=1.20.5 <=1.21.1",
+    "minecraft": ">=1.20.5 <=1.20.6",
     "java": ">=21",
     "fabric-api": "*"
+  },
+  "suggests": {
+    "modmenu": "*",
+    "cloth-config": "*"
   }
 }

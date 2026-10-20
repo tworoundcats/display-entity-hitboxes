@@ -46,6 +46,7 @@ public final class DisplayPhysics {
             if (!DisplayHitboxes.hasCollision(d) || !DisplayHitboxes.mayIntersect(d, probe)) continue;
 
             DisplayHitboxes.Motion m = DisplayHitboxes.motion(d, tick);
+            if (!m.moving) continue;
             double ox = d.getX(), oy = d.getY(), oz = d.getZ();
 
             for (Box local : DisplayHitboxes.getCollisionBoxes(d)) {
@@ -68,7 +69,6 @@ public final class DisplayPhysics {
 
                 if (!b.intersects(eb)) continue;
 
-                // push out along the shortest route and carry over its speed
                 double px = Math.min(eb.maxX, b.maxX) - Math.max(eb.minX, b.minX);
                 double py = Math.min(eb.maxY, b.maxY) - Math.max(eb.minY, b.minY);
                 double pz = Math.min(eb.maxZ, b.maxZ) - Math.max(eb.minZ, b.minZ);
@@ -102,7 +102,6 @@ public final class DisplayPhysics {
             if (need > 0) e.setVelocity(vel.add(n.multiply(need)));
         }
 
-        // momentum that just keep the platform's speed once when you leave it
         if (carried) {
             CARRY.put(e, carry);
         } else {
