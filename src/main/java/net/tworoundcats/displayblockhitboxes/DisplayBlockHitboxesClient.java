@@ -1,11 +1,11 @@
 package net.tworoundcats.displayblockhitboxes;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
-import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
@@ -16,8 +16,6 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.decoration.DisplayEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Box;
@@ -29,10 +27,12 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.Optional;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class DisplayBlockHitboxesClient implements ClientModInitializer {
-    private static final java.util.Map<java.util.UUID, Long> LAST_TOGGLE_CLIENT = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final java.util.Map<java.util.UUID, Long> LAST_TOGGLE_SERVER = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final Map<Integer, Boolean> PENDING_COLLISION_STATES = new ConcurrentHashMap<>();
 
     @Override
     public void onInitializeClient() {
@@ -42,8 +42,40 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
             if (m != null && client.player != null) client.player.sendMessage(Text.literal("§e" + m), false);
         });
 
-        ClientEntityEvents.ENTITY_LOAD.register((entity, world) -> DisplayHitboxes.track(entity, world));
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            PENDING_COLLISION_STATES.clear();
+        });
+
+        ClientEntityEvents.ENTITY_LOAD.register((entity, world) -> {
+            DisplayHitboxes.track(entity, world);
+            if (entity instanceof DisplayEntity) {
+                Boolean pending = PENDING_COLLISION_STATES.remove(entity.getId());
+                if (pending != null) {
+                    if (pending) entity.addCommandTag("deh_no_collision");
+                    else entity.removeScoreboardTag("deh_no_collision");
+                }
+            }
+        });
+
         ClientEntityEvents.ENTITY_UNLOAD.register((entity, world) -> DisplayHitboxes.untrack(entity, world));
+
+        ClientPlayNetworking.registerGlobalReceiver(DisplayBlockHitboxes.SYNC_COLLISION, (client, handler, buf, responseSender) -> {
+            int entityId = buf.readInt();
+            boolean noCollision = buf.readBoolean();
+            client.execute(() -> {
+                if (client.world != null) {
+                    Entity entity = client.world.getEntityById(entityId);
+                    if (entity != null) {
+                        if (noCollision) entity.addCommandTag("deh_no_collision");
+                        else entity.removeScoreboardTag("deh_no_collision");
+                    } else {
+                        PENDING_COLLISION_STATES.put(entityId, noCollision);
+                    }
+                } else {
+                    PENDING_COLLISION_STATES.put(entityId, noCollision);
+                }
+            });
+        });
 
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
             MinecraftClient mc = MinecraftClient.getInstance();
@@ -80,27 +112,6 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
                     drawCollisionSlices(display, matrices, consumers, cam);
                 }
             }
-        });
-
-        UseEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
-            if (!player.isCreative() || hand != Hand.MAIN_HAND) return ActionResult.PASS;
-            if (!(entity instanceof DisplayEntity) || !DisplayHitboxes.isTargetable(entity)) return ActionResult.PASS;
-
-            java.util.Map<java.util.UUID, Long> last = world.isClient ? LAST_TOGGLE_CLIENT : LAST_TOGGLE_SERVER;
-            long now = world.getTime();
-            Long prev = last.get(entity.getUuid());
-            if (prev == null || now - prev > 3) {
-                last.put(entity.getUuid(), now);
-
-                boolean wasDisabled = entity.getCommandTags().contains("deh_no_collision");
-                if (wasDisabled) entity.removeScoreboardTag("deh_no_collision");
-                else entity.addCommandTag("deh_no_collision");
-
-                if (world.isClient) {
-                    player.sendMessage(Text.literal("Collision: " + (wasDisabled ? "§aEnabled" : "§cDisabled")), true);
-                }
-            }
-            return world.isClient ? ActionResult.PASS : ActionResult.SUCCESS;
         });
     }
 
@@ -194,7 +205,6 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         );
 
         boolean accurate = DisplayHitboxConfig.get().accurateHitboxes;
-        // vanilla lookup misses displays whose box is far from their origin, so it uses its own list in accurate mode
         Iterable<DisplayEntity> candidates = accurate
                 ? DisplayHitboxes.displays(mc.world)
                 : mc.world.getEntitiesByClass(DisplayEntity.class, searchBox, DisplayHitboxes::isTargetable);

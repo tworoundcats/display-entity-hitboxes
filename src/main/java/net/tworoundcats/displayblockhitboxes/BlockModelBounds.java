@@ -15,7 +15,8 @@ import net.minecraft.client.texture.SpriteContents;
 import java.util.concurrent.TimeUnit;
 
 public final class BlockModelBounds {
-    private static final int N = DisplayHitboxConfig.get().blockModelResolution;
+    // No longer final, so it can be refreshed via the config screen!
+    private static int N = DisplayHitboxConfig.get().blockModelResolution;
 
     private static final Cache<BlockState, VoxelShape> CACHE = CacheBuilder.newBuilder()
             .maximumSize(512)
@@ -23,6 +24,11 @@ public final class BlockModelBounds {
             .build();
 
     private BlockModelBounds() {}
+
+    public static void clearCache() {
+        N = DisplayHitboxConfig.get().blockModelResolution;
+        CACHE.invalidateAll();
+    }
 
     public static VoxelShape getShape(BlockState state) {
         try {
@@ -71,7 +77,6 @@ public final class BlockModelBounds {
             if (minX < -0.1f || minY < -0.1f || minZ < -0.1f || maxX > 1.1f || maxY > 1.1f || maxZ > 1.1f) continue;
 
             float dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-
 
             boolean aligned = Math.min(dx, Math.min(dy, dz)) < 0.002f;
             if (aligned) {

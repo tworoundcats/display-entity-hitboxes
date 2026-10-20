@@ -308,6 +308,11 @@ public final class DisplayHitboxes {
 
     private static final Cache<DisplayEntity, Motion> MOTION = CacheBuilder.newBuilder().weakKeys().build();
 
+    public static void clearCache() {
+        COLLISION_CACHE.invalidateAll();
+        MOTION.invalidateAll();
+    }
+
     public static Motion motion(DisplayEntity d, long tick) {
         Motion m = MOTION.getIfPresent(d);
         if (m == null) {

@@ -5,12 +5,12 @@ import org.joml.Matrix4f;
 import org.joml.Vector4f;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 public final class ObbBoxes {
     private static final double EPS = 1.0e-4;
-    private static final double FINE = 1.0 / DisplayHitboxConfig.get().rotatedSlicesPerBlock;
-    private static final double COARSE = 1.0 / DisplayHitboxConfig.get().tiltedResolutionPerBlock;
     private static final double MIN_SIZE = 0.01;
 
     private static final int[][] FACES = {
@@ -34,8 +34,10 @@ public final class ObbBoxes {
             return;
         }
 
-        boolean yawOnly = Math.abs(m.m10()) < EPS && Math.abs(m.m12()) < EPS
-                && Math.abs(m.m01()) < EPS && Math.abs(m.m21()) < EPS;
+        // Determine the orientation exactly. We NEVER slice on the Y-axis, only X (0) and Z (2).
+        boolean yawOnly = Math.abs(m.m10()) < EPS && Math.abs(m.m12()) < EPS && Math.abs(m.m01()) < EPS && Math.abs(m.m21()) < EPS;
+        boolean pitchOnly = Math.abs(m.m01()) < EPS && Math.abs(m.m02()) < EPS && Math.abs(m.m10()) < EPS && Math.abs(m.m20()) < EPS;
+        boolean rollOnly = Math.abs(m.m02()) < EPS && Math.abs(m.m12()) < EPS && Math.abs(m.m20()) < EPS && Math.abs(m.m21()) < EPS;
 
         List<List<double[]>> allFaces = new ArrayList<>();
         double[] min = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE};
@@ -63,10 +65,24 @@ public final class ObbBoxes {
             }
         }
 
-        List<Box> a = cull(sliceAll(allFaces, min, max, 0, 2, yawOnly));
-        List<Box> b = cull(sliceAll(allFaces, min, max, 2, 0, yawOnly));
-
-        List<Box> boxes = a.size() <= b.size() ? a : b;
+        List<Box> boxes;
+        if (yawOnly) {
+            // Yawed objects stretch across X and Z. We test slicing along X and Z, and pick the one with fewer boxes.
+            List<Box> a = cull(sliceAll(allFaces, min, max, 0, 2, true, true));
+            List<Box> b = cull(sliceAll(allFaces, min, max, 2, 0, true, true));
+            boxes = a.size() <= b.size() ? a : b;
+        } else if (pitchOnly) {
+            // Pitched objects slope in the YZ plane. We MUST slice along Z to create vertical columns.
+            boxes = cull(sliceAll(allFaces, min, max, 2, 0, true, true));
+        } else if (rollOnly) {
+            // Rolled objects slope in the XY plane. We MUST slice along X to create vertical columns.
+            boxes = cull(sliceAll(allFaces, min, max, 0, 2, true, true));
+        } else {
+            // Complex objects (tilted in multiple directions). Grid slice on BOTH X and Z.
+            List<Box> a = cull(sliceAll(allFaces, min, max, 0, 2, false, false));
+            List<Box> b = cull(sliceAll(allFaces, min, max, 2, 0, false, false));
+            boxes = a.size() <= b.size() ? a : b;
+        }
 
         if (boxes == null || boxes.isEmpty()) {
             out.add(pad(new Box(min[0], min[1], min[2], max[0], max[1], max[2])));
@@ -76,61 +92,138 @@ public final class ObbBoxes {
         for (Box box : boxes) out.add(pad(box));
     }
 
-    private static List<Box> cull(List<Box> boxes) {
-        if (boxes.size() <= 1) return boxes;
-        List<Box> result = new ArrayList<>(boxes);
-        boolean changed = true;
+    private static List<Box> sliceAll(List<List<double[]>> faces, double[] min, double[] max, int pAxis, int sAxis, boolean oneD, boolean isFine) {
+        double minP = min[pAxis], maxP = max[pAxis];
+        double minS = min[sAxis], maxS = max[sAxis];
 
-        while (changed) {
-            changed = false;
-            for (int i = 0; i < result.size(); i++) {
-                for (int j = i + 1; j < result.size(); j++) {
-                    Box b1 = result.get(i);
-                    Box b2 = result.get(j);
+        double extP = maxP - minP;
+        double extS = maxS - minS;
 
-                    if (b1.minX >= b2.minX - 0.015 && b1.maxX <= b2.maxX + 0.015 &&
-                            b1.minY >= b2.minY - 0.015 && b1.maxY <= b2.maxY + 0.015 &&
-                            b1.minZ >= b2.minZ - 0.015 && b1.maxZ <= b2.maxZ + 0.015) {
-                        result.remove(i);
-                        changed = true;
-                        break;
-                    }
+        int cap = isFine ? DisplayHitboxConfig.get().maxRotatedSlices : DisplayHitboxConfig.get().maxTiltedResolution;
+        double res = isFine ? (1.0 / Math.max(1, DisplayHitboxConfig.get().rotatedSlicesPerBlock))
+                : (1.0 / Math.max(1, DisplayHitboxConfig.get().tiltedResolutionPerBlock));
 
-                    if (b2.minX >= b1.minX - 0.015 && b2.maxX <= b1.maxX + 0.015 &&
-                            b2.minY >= b1.minY - 0.015 && b2.maxY <= b1.maxY + 0.015 &&
-                            b2.minZ >= b1.minZ - 0.015 && b2.maxZ <= b1.maxZ + 0.015) {
-                        result.remove(j);
-                        changed = true;
-                        break;
-                    }
+        if (DisplayHitboxConfig.get().dynamicMaxSlices) {
+            // Dynamically scale the limits relative to the bounding extent
+            double scaleFactor = oneD ? extP : Math.max(extP, extS);
+            cap = Math.min(isFine ? 1024 : 128, (int) Math.ceil(cap * Math.max(1.0, scaleFactor)));
+        }
 
-                    if (Math.abs(b1.minX - b2.minX) < 0.015 && Math.abs(b1.maxX - b2.maxX) < 0.015 &&
-                            Math.abs(b1.minY - b2.minY) < 0.015 && Math.abs(b1.maxY - b2.maxY) < 0.015 &&
-                            Math.abs(b1.minZ - b2.minZ) < 0.015 && Math.abs(b1.maxZ - b2.maxZ) < 0.015) {
-                        result.set(i, b1.union(b2));
-                        result.remove(j);
-                        changed = true;
-                        break;
-                    }
+        int nP = clamp((int) Math.ceil(extP / res), 1, cap);
+        int nS = oneD ? 1 : clamp((int) Math.ceil(extS / res), 1, cap);
 
-                    double eps = 1.0e-3;
-                    boolean xMatch = Math.abs(b1.minX - b2.minX) < eps && Math.abs(b1.maxX - b2.maxX) < eps;
-                    boolean yMatch = Math.abs(b1.minY - b2.minY) < eps && Math.abs(b1.maxY - b2.maxY) < eps;
-                    boolean zMatch = Math.abs(b1.minZ - b2.minZ) < eps && Math.abs(b1.maxZ - b2.maxZ) < eps;
+        List<Box> result = new ArrayList<>();
+        for (int i = 0; i < nP; i++) {
+            double p0 = minP + extP * i / nP;
+            double p1 = minP + extP * (i + 1) / nP;
+            List<List<double[]>> slab = clipAll(faces, pAxis, p0, p1);
 
-                    if ((yMatch && zMatch && b1.maxX >= b2.minX - eps && b1.minX <= b2.maxX + eps) ||
-                            (xMatch && zMatch && b1.maxY >= b2.minY - eps && b1.minY <= b2.maxY + eps) ||
-                            (xMatch && yMatch && b1.maxZ >= b2.minZ - eps && b1.minZ <= b2.maxZ + eps)) {
-                        result.set(i, b1.union(b2));
-                        result.remove(j);
-                        changed = true;
-                        break;
-                    }
+            Box run = null;
+            for (int j = 0; j < nS; j++) {
+                double s0 = minS + extS * j / nS;
+                double s1 = minS + extS * (j + 1) / nS;
+
+                Box cell = oneD ? bounds(slab) : bounds(clipAll(slab, sAxis, s0, s1));
+
+                // If consecutive cells share the exact same Y bounds, seamlessly merge them together
+                if (cell != null && run != null
+                        && Math.abs(cell.minY - run.minY) < EPS && Math.abs(cell.maxY - run.maxY) < EPS) {
+                    run = new Box(
+                            Math.min(run.minX, cell.minX), Math.min(run.minY, cell.minY), Math.min(run.minZ, cell.minZ),
+                            Math.max(run.maxX, cell.maxX), Math.max(run.maxY, cell.maxY), Math.max(run.maxZ, cell.maxZ));
+                } else {
+                    if (run != null) result.add(run);
+                    run = cell;
                 }
-                if (changed) break;
             }
+            if (run != null) result.add(run);
         }
         return result;
+    }
+
+    private static List<Box> cull(List<Box> boxes) {
+        if (boxes.size() <= 1) return boxes;
+        Box[] arr = boxes.toArray(new Box[0]);
+        int size = arr.length;
+
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+
+            // Compact the array and remove nulls from previous iteration
+            int newSize = 0;
+            for (int i = 0; i < size; i++) {
+                if (arr[i] != null) {
+                    arr[newSize++] = arr[i];
+                }
+            }
+            size = newSize;
+
+            // Sort by minX to allow sweep-and-prune (early breaking in the inner loop)
+            Arrays.sort(arr, 0, size, Comparator.comparingDouble(b -> b.minX));
+
+            for (int i = 0; i < size; i++) {
+                Box b1 = arr[i];
+                if (b1 == null) continue;
+
+                for (int j = i + 1; j < size; j++) {
+                    Box b2 = arr[j];
+                    if (b2 == null) continue;
+
+                    // Since the array is sorted by minX, no subsequent box will ever intersect b1's X range!
+                    if (b2.minX > b1.maxX + 0.016) {
+                        break;
+                    }
+
+                    Box merged = tryMerge(b1, b2);
+                    if (merged != null) {
+                        b1 = merged;
+                        arr[i] = b1;
+                        arr[j] = null;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        List<Box> result = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            if (arr[i] != null) result.add(arr[i]);
+        }
+        return result;
+    }
+
+    private static Box tryMerge(Box b1, Box b2) {
+        if (b1.minX >= b2.minX - 0.015 && b1.maxX <= b2.maxX + 0.015 &&
+                b1.minY >= b2.minY - 0.015 && b1.maxY <= b2.maxY + 0.015 &&
+                b1.minZ >= b2.minZ - 0.015 && b1.maxZ <= b2.maxZ + 0.015) {
+            return b2;
+        }
+
+        if (b2.minX >= b1.minX - 0.015 && b2.maxX <= b1.maxX + 0.015 &&
+                b2.minY >= b1.minY - 0.015 && b2.maxY <= b1.maxY + 0.015 &&
+                b2.minZ >= b1.minZ - 0.015 && b2.maxZ <= b1.maxZ + 0.015) {
+            return b1;
+        }
+
+        if (Math.abs(b1.minX - b2.minX) < 0.015 && Math.abs(b1.maxX - b2.maxX) < 0.015 &&
+                Math.abs(b1.minY - b2.minY) < 0.015 && Math.abs(b1.maxY - b2.maxY) < 0.015 &&
+                Math.abs(b1.minZ - b2.minZ) < 0.015 && Math.abs(b1.maxZ - b2.maxZ) < 0.015) {
+            return b1.union(b2);
+        }
+
+        double eps = 1.0e-3;
+        boolean xMatch = Math.abs(b1.minX - b2.minX) < eps && Math.abs(b1.maxX - b2.maxX) < eps;
+        boolean yMatch = Math.abs(b1.minY - b2.minY) < eps && Math.abs(b1.maxY - b2.maxY) < eps;
+        boolean zMatch = Math.abs(b1.minZ - b2.minZ) < eps && Math.abs(b1.maxZ - b2.maxZ) < eps;
+
+        if ((yMatch && zMatch && b1.maxX >= b2.minX - eps && b1.minX <= b2.maxX + eps) ||
+                (xMatch && zMatch && b1.maxY >= b2.minY - eps && b1.minY <= b2.maxY + eps) ||
+                (xMatch && yMatch && b1.maxZ >= b2.minZ - eps && b1.minZ <= b2.maxZ + eps)) {
+            return b1.union(b2);
+        }
+
+        return null;
     }
 
     private static Box transformBox(Box local, Matrix4f m) {
@@ -160,64 +253,15 @@ public final class ObbBoxes {
         return (Math.abs(a) > EPS ? 1 : 0) + (Math.abs(b) > EPS ? 1 : 0) + (Math.abs(c) > EPS ? 1 : 0);
     }
 
+    private static int clamp(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
     private static Box pad(Box b) {
         double px = Math.max(0.0, (MIN_SIZE - (b.maxX - b.minX)) / 2.0);
         double py = Math.max(0.0, (MIN_SIZE - (b.maxY - b.minY)) / 2.0);
         double pz = Math.max(0.0, (MIN_SIZE - (b.maxZ - b.minZ)) / 2.0);
         return (px > 0 || py > 0 || pz > 0) ? b.expand(px, py, pz) : b;
-    }
-
-    private static double volume(List<Box> boxes) {
-        double v = 0.0;
-        for (Box b : boxes) v += (b.maxX - b.minX) * (b.maxY - b.minY) * (b.maxZ - b.minZ);
-        return v;
-    }
-
-    private static List<Box> sliceAll(List<List<double[]>> faces, double[] min, double[] max, int pAxis, int sAxis, boolean yawOnly) {
-        double minP = min[pAxis], maxP = max[pAxis];
-        double minS = min[sAxis], maxS = max[sAxis];
-        double minY = min[1], maxY = max[1];
-
-        double extP = maxP - minP, extS = maxS - minS, extY = maxY - minY;
-
-        int nP, nS;
-        if (yawOnly) {
-            nP = clamp((int) Math.ceil(extP / FINE), 1, DisplayHitboxConfig.get().maxRotatedSlices);
-            nS = 1;
-        } else {
-            nP = clamp((int) Math.ceil(Math.max(extP, extY) / COARSE), 1, DisplayHitboxConfig.get().maxTiltedResolution);
-            nS = clamp((int) Math.ceil(Math.max(extS, extY) / COARSE), 1, DisplayHitboxConfig.get().maxTiltedResolution);
-        }
-
-        List<Box> result = new ArrayList<>();
-        for (int i = 0; i < nP; i++) {
-            double p0 = minP + extP * i / nP;
-            double p1 = minP + extP * (i + 1) / nP;
-            List<List<double[]>> slab = clipAll(faces, pAxis, p0, p1);
-
-            Box run = null;
-            for (int j = 0; j < nS; j++) {
-                double s0 = minS + extS * j / nS;
-                double s1 = minS + extS * (j + 1) / nS;
-                Box cell = bounds(clipAll(slab, sAxis, s0, s1));
-
-                if (cell != null && run != null
-                        && Math.abs(cell.minY - run.minY) < EPS && Math.abs(cell.maxY - run.maxY) < EPS) {
-                    run = new Box(
-                            Math.min(run.minX, cell.minX), Math.min(run.minY, cell.minY), Math.min(run.minZ, cell.minZ),
-                            Math.max(run.maxX, cell.maxX), Math.max(run.maxY, cell.maxY), Math.max(run.maxZ, cell.maxZ));
-                } else {
-                    if (run != null) result.add(run);
-                    run = cell;
-                }
-            }
-            if (run != null) result.add(run);
-        }
-        return result;
-    }
-
-    private static int clamp(int v, int lo, int hi) {
-        return Math.max(lo, Math.min(hi, v));
     }
 
     private static Box bounds(List<List<double[]>> polys) {

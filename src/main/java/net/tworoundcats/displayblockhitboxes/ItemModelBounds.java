@@ -32,6 +32,10 @@ public final class ItemModelBounds {
 
     private ItemModelBounds() {}
 
+    public static void clearCache() {
+        CACHE.invalidateAll();
+    }
+
     public static VoxelShape getShape(World world, ItemStack stack) {
         NbtCompound nbt = stack.getNbt();
         Key key = new Key(stack.getItem(), nbt == null ? null : nbt.copy());
