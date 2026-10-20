@@ -1,11 +1,14 @@
 package net.tworoundcats.displayblockhitboxes;
+
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.util.math.MatrixStack;
@@ -44,65 +47,39 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
 
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
             MinecraftClient mc = MinecraftClient.getInstance();
+            boolean canPick = false;
             if (mc.interactionManager != null) {
                 GameMode mode = mc.interactionManager.getCurrentGameMode();
-                if (mode == GameMode.SPECTATOR || mode == GameMode.ADVENTURE) return;
+                canPick = (mode != GameMode.SPECTATOR && mode != GameMode.ADVENTURE);
             }
 
+            boolean f3b = mc.getEntityRenderDispatcher().shouldRenderHitboxes();
             HitResult hit = mc.crosshairTarget;
-            if (!(hit instanceof EntityHitResult entityHit)) return;
+            Entity targetEntity = (hit instanceof EntityHitResult entityHit) ? entityHit.getEntity() : null;
 
-            Entity entity = entityHit.getEntity();
-            if (!(entity instanceof DisplayEntity display) || !DisplayHitboxes.isTargetable(entity)) return;
+            if (!canPick) targetEntity = null;
 
             VertexConsumerProvider consumers = context.consumers();
             if (consumers == null) return;
-
             MatrixStack matrices = context.matrixStack();
             Vec3d cam = context.camera().getPos();
 
-            // Accurate display outline
-            if (DisplayHitboxConfig.get().accurateHitboxes) {
-                DisplayHitboxes.ShapeData data = DisplayHitboxes.getAccurateShape(display, true);
-                if (data != null && !data.shape().isEmpty()) {
-                    matrices.push();
-                    matrices.translate(display.getX() - cam.x, display.getY() - cam.y, display.getZ() - cam.z);
-
-                    Vector3f t = display.getDataTracker().get(DisplayEntityAccessor.getTranslation());
-                    Vector3f s = display.getDataTracker().get(DisplayEntityAccessor.getScale());
-                    Quaternionf lr = display.getDataTracker().get(DisplayEntityAccessor.getLeftRotation());
-                    Quaternionf rr = display.getDataTracker().get(DisplayEntityAccessor.getRightRotation());
-                    Quaternionf orient = new Quaternionf().rotationYXZ(-DisplayHitboxes.DEG * display.getYaw(), DisplayHitboxes.DEG * display.getPitch(), 0.0f);
-
-                    matrices.multiply(orient);
-                    matrices.translate(t.x(), t.y(), t.z());
-                    matrices.multiply(lr);
-                    matrices.scale(s.x(), s.y(), s.z());
-                    matrices.multiply(rr);
-
-                    if (display instanceof DisplayEntity.ItemDisplayEntity itemDisplay) {
-                        ItemStack stack = null;
-                        net.minecraft.inventory.StackReference ref = itemDisplay.getStackReference(0);
-                        if (ref != null) stack = ref.get();
-
-                        if (stack != null && !stack.isEmpty()) {
-                            int mode = itemDisplay.getDataTracker().get(ItemDisplayEntityAccessor.getItemDisplay());
-                            ItemModelBounds.applyInternalTransform(matrices, display.getWorld(), stack, mode);
-                        }
-                    }
-
-                    WorldRenderer.drawShapeOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), data.shape(), 0.0, 0.0, 0.0, 0.0f, 0.0f, 0.0f, 0.4f, true);
-                    matrices.pop();
-                    return;
-                }
+            if (!f3b && targetEntity instanceof DisplayEntity display && DisplayHitboxes.isTargetable(display)) {
+                drawAccurateVisualOutline(display, matrices, consumers, cam);
             }
 
-            // Regular hitbox fallback
-            Box world = DisplayHitboxes.computeBox(display, true);
-            if (world == null) world = entity.getBoundingBox();
+            if (f3b) {
+                net.minecraft.client.render.Frustum frustum = context.frustum();
+                for (DisplayEntity display : DisplayHitboxes.displays(mc.world)) {
+                    if (display.squaredDistanceTo(cam) > 32 * 32) continue;
+                    if (!DisplayHitboxes.isTargetable(display)) continue;
 
-            Box box = world.offset(-cam.x, -cam.y, -cam.z);
-            WorldRenderer.drawBox(matrices, consumers.getBuffer(RenderLayer.getLines()), box, 0.0f, 0.0f, 0.0f, 0.4f);
+                    Box bounds = display.getBoundingBox();
+                    if (frustum != null && !frustum.isVisible(bounds)) continue;
+
+                    drawCollisionSlices(display, matrices, consumers, cam);
+                }
+            }
         });
 
         UseEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
@@ -123,9 +100,72 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
                     player.sendMessage(Text.literal("Collision: " + (wasDisabled ? "§aEnabled" : "§cDisabled")), true);
                 }
             }
-
             return world.isClient ? ActionResult.PASS : ActionResult.SUCCESS;
         });
+    }
+
+    private static void drawAccurateVisualOutline(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider consumers, Vec3d cam) {
+        if (DisplayHitboxConfig.get().accurateHitboxes) {
+            DisplayHitboxes.ShapeData data = DisplayHitboxes.getAccurateShape(display, true);
+            if (data != null && !data.shape().isEmpty()) {
+                matrices.push();
+                matrices.translate(display.getX() - cam.x, display.getY() - cam.y, display.getZ() - cam.z);
+
+                Vector3f t = display.getDataTracker().get(DisplayEntityAccessor.getTranslation());
+                Vector3f s = display.getDataTracker().get(DisplayEntityAccessor.getScale());
+                Quaternionf lr = display.getDataTracker().get(DisplayEntityAccessor.getLeftRotation());
+                Quaternionf rr = display.getDataTracker().get(DisplayEntityAccessor.getRightRotation());
+                Quaternionf orient = new Quaternionf().rotationYXZ(-DisplayHitboxes.DEG * display.getYaw(), DisplayHitboxes.DEG * display.getPitch(), 0.0f);
+
+                matrices.multiply(orient);
+                matrices.translate(t.x(), t.y(), t.z());
+                matrices.multiply(lr);
+                matrices.scale(s.x(), s.y(), s.z());
+                matrices.multiply(rr);
+
+                if (display instanceof DisplayEntity.ItemDisplayEntity itemDisplay) {
+                    ItemStack stack = null;
+                    try {
+                        net.minecraft.inventory.StackReference ref = itemDisplay.getStackReference(0);
+                        if (ref != null) stack = ref.get();
+                    } catch (Exception ignored) {}
+
+                    if (stack != null && !stack.isEmpty()) {
+                        int mode = itemDisplay.getDataTracker().get(ItemDisplayEntityAccessor.getItemDisplay());
+                        ItemModelBounds.applyInternalTransform(matrices, display.getWorld(), stack, mode);
+                    }
+                }
+
+                WorldRenderer.drawShapeOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), data.shape(), 0.0, 0.0, 0.0, 0.0f, 0.0f, 0.0f, 0.4f, true);
+                matrices.pop();
+                return;
+            }
+        }
+
+        Box world = DisplayHitboxes.computeBox(display, true);
+        if (world == null) world = display.getBoundingBox();
+        Box box = world.offset(-cam.x, -cam.y, -cam.z);
+        WorldRenderer.drawBox(matrices, consumers.getBuffer(RenderLayer.getLines()), box, 0.0f, 0.0f, 0.0f, 0.4f);
+    }
+
+    private static void drawCollisionSlices(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider consumers, Vec3d cam) {
+        double dx = display.getX() - cam.x;
+        double dy = display.getY() - cam.y;
+        double dz = display.getZ() - cam.z;
+
+        java.util.List<Box> boxes = DisplayHitboxes.getCollisionBoxes(display);
+        if (boxes != null && !boxes.isEmpty()) {
+            VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
+            for (Box local : boxes) {
+                Box box = local.offset(dx, dy, dz);
+                WorldRenderer.drawBox(matrices, buffer, box, 1.0f, 1.0f, 1.0f, 1.0f);
+            }
+        } else {
+            Box world = DisplayHitboxes.computeBox(display, true);
+            if (world == null) world = display.getBoundingBox();
+            Box box = world.offset(-cam.x, -cam.y, -cam.z);
+            WorldRenderer.drawBox(matrices, consumers.getBuffer(RenderLayer.getLines()), box, 1.0f, 1.0f, 1.0f, 1.0f);
+        }
     }
 
     public static void pick(float tickDelta) {

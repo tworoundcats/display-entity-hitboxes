@@ -3,3 +3,4 @@ build/
 .idea/
 run/
 *.iml
+src/main/java/net/tworoundcats/displayblockhitboxes.zip
