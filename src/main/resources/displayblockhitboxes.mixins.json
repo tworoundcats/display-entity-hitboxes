@@ -3,10 +3,17 @@
   "package": "net.tworoundcats.displayblockhitboxes.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
+    "BlockDisplayEntityInvoker",
     "DisplayEntityAccessor",
-    "DisplayEntityMixin"
+    "EntityCanHitMixin",
+    "EntityViewMixin",
+    "GameRendererMixin",
+    "ItemDisplayEntityAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
-  }
+  },
+  "client": [
+    "EntityRendererMixin"
+  ]
 }

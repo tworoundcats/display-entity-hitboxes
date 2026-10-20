@@ -2,19 +2,27 @@
   "schemaVersion": 1,
   "id": "displayblockhitboxes",
   "version": "${version}",
-  "name": "Display Block Hitboxes",
-  "description": "Gives block display entities solid, rotation- and scale-aware collision and makes them targetable.",
+  "name": "Display Entity Hitboxes",
+  "description": "Gives display entities highly accurate collisions and outlines at any scale for any item or block, with per entity collision settings.",
   "authors": [
     "tworoundcats"
   ],
   "license": "Apache-2.0",
   "environment": "*",
+  "entrypoints": {
+    "main": [
+      "net.tworoundcats.displayblockhitboxes.DisplayBlockHitboxes"
+    ],
+    "client": [
+      "net.tworoundcats.displayblockhitboxes.DisplayBlockHitboxesClient"
+    ]
+  },
   "mixins": [
     "displayblockhitboxes.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.16.10",
-    "minecraft": "~1.20.1",
+    "minecraft": ">=1.20 <1.20.5",
     "java": ">=17",
     "fabric-api": "*"
   }
