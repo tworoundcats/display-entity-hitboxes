@@ -10,7 +10,7 @@ public record CollisionSyncPayload(int entityId, boolean noCollision) implements
 
     public static final PacketCodec<RegistryByteBuf, CollisionSyncPayload> CODEC = PacketCodec.tuple(
             PacketCodecs.VAR_INT, CollisionSyncPayload::entityId,
-            PacketCodecs.BOOL, CollisionSyncPayload::noCollision,
+            PacketCodecs.BOOLEAN, CollisionSyncPayload::noCollision,
             CollisionSyncPayload::new);
 
     @Override

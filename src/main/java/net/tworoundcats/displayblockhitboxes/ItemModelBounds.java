@@ -3,6 +3,7 @@ package net.tworoundcats.displayblockhitboxes;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.render.item.ItemRenderState;
 import net.minecraft.client.render.model.BakedModel;
 import net.minecraft.client.render.model.BakedQuad;
 import net.minecraft.item.ModelTransformationMode;
@@ -17,6 +18,8 @@ import net.minecraft.util.math.random.Random;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.World;
+import net.tworoundcats.displayblockhitboxes.mixin.ItemRenderStateAccessor;
+import net.tworoundcats.displayblockhitboxes.mixin.LayerRenderStateAccessor;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 
@@ -52,12 +55,30 @@ public final class ItemModelBounds {
         float zMin = Float.MAX_VALUE, zMax = -Float.MAX_VALUE;
     }
 
-    private static VoxelShape computeShape(World world, ItemStack stack) {
-        BakedModel model = MinecraftClient.getInstance().getItemRenderer().getModel(stack, world, null, 0);
-        VoxelShape shape = VoxelShapes.empty();
+    private static ItemRenderState stateFor(World world, ItemStack stack, ModelTransformationMode mode) {
+        ItemRenderState state = new ItemRenderState();
+        MinecraftClient.getInstance().getItemModelManager().update(state, stack, mode, false, world, null, 0);
+        return state;
+    }
 
-        if (!model.isBuiltin()) {
-            Random random = Random.create(42L);
+    private static ModelTransformationMode modeOf(int mode) {
+        ModelTransformationMode[] modes = ModelTransformationMode.values();
+        return mode >= 0 && mode < modes.length ? modes[mode] : ModelTransformationMode.NONE;
+    }
+
+    private static VoxelShape computeShape(World world, ItemStack stack) {
+        ItemRenderState state = stateFor(world, stack, ModelTransformationMode.NONE);
+        ItemRenderStateAccessor acc = (ItemRenderStateAccessor) state;
+        ItemRenderState.LayerRenderState[] layers = acc.dbh$getLayers();
+        int count = acc.dbh$getLayerCount();
+        VoxelShape shape = VoxelShapes.empty();
+        Random random = Random.create(42L);
+
+        for (int i = 0; i < count; i++) {
+            LayerRenderStateAccessor layer = (LayerRenderStateAccessor) (Object) layers[i];
+            BakedModel model = layer.dbh$getModel();
+            if (model == null || layer.dbh$getSpecialModelType() != null) continue;
+
             Flat flat = model.hasDepth() ? null : new Flat();
             for (Direction dir : Direction.values()) {
                 shape = addQuads(shape, model, dir, random, flat);
@@ -141,12 +162,11 @@ public final class ItemModelBounds {
     }
 
     public static Matrix4f getInternalTransform(World world, ItemStack stack, int mode) {
-        BakedModel model = MinecraftClient.getInstance().getItemRenderer().getModel(stack, world, null, 0);
-        ModelTransformationMode[] modes = ModelTransformationMode.values();
-        ModelTransformationMode tm = mode >= 0 && mode < modes.length ? modes[mode] : ModelTransformationMode.NONE;
+        ModelTransformationMode tm = modeOf(mode);
+        ItemRenderState state = stateFor(world, stack, tm);
 
         Matrix4f m = new Matrix4f().rotateY((float) Math.PI);
-        Transformation tf = model.getTransformation().getTransformation(tm);
+        Transformation tf = state.getTransformation();
         if (tf != Transformation.IDENTITY) {
             boolean left = mode == 1 || mode == 3;
             float ry = tf.rotation.y(), rz = tf.rotation.z();
@@ -161,12 +181,11 @@ public final class ItemModelBounds {
     }
 
     public static void applyInternalTransform(MatrixStack matrices, World world, ItemStack stack, int mode) {
-        BakedModel model = MinecraftClient.getInstance().getItemRenderer().getModel(stack, world, null, 0);
-        ModelTransformationMode[] modes = ModelTransformationMode.values();
-        ModelTransformationMode tm = mode >= 0 && mode < modes.length ? modes[mode] : ModelTransformationMode.NONE;
+        ModelTransformationMode tm = modeOf(mode);
+        ItemRenderState state = stateFor(world, stack, tm);
 
         matrices.multiply(net.minecraft.util.math.RotationAxis.POSITIVE_Y.rotation((float) Math.PI));
-        Transformation tf = model.getTransformation().getTransformation(tm);
+        Transformation tf = state.getTransformation();
         if (tf != Transformation.IDENTITY) {
             boolean left = mode == 1 || mode == 3;
             float ry = tf.rotation.y(), rz = tf.rotation.z();

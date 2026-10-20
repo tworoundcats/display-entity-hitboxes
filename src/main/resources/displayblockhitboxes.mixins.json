@@ -9,7 +9,9 @@
     "EntityStepMixin",
     "EntityViewMixin",
     "GameRendererMixin",
-    "ItemDisplayEntityAccessor"
+    "ItemDisplayEntityAccessor",
+    "ItemRenderStateAccessor",
+    "LayerRenderStateAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
