@@ -4,9 +4,8 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.item.ItemRenderState;
-import net.minecraft.client.render.model.BakedModel;
 import net.minecraft.client.render.model.BakedQuad;
-import net.minecraft.item.ModelTransformationMode;
+import net.minecraft.item.ItemDisplayContext;
 import net.minecraft.client.render.model.json.Transformation;
 import net.minecraft.client.texture.SpriteContents;
 import net.minecraft.client.util.math.MatrixStack;
@@ -14,7 +13,6 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.component.ComponentMap;
 import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.random.Random;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.World;
@@ -23,6 +21,7 @@ import net.tworoundcats.displayblockhitboxes.mixin.LayerRenderStateAccessor;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public final class ItemModelBounds {
@@ -55,35 +54,40 @@ public final class ItemModelBounds {
         float zMin = Float.MAX_VALUE, zMax = -Float.MAX_VALUE;
     }
 
-    private static ItemRenderState stateFor(World world, ItemStack stack, ModelTransformationMode mode) {
+    private static ItemRenderState stateFor(World world, ItemStack stack, ItemDisplayContext mode) {
         ItemRenderState state = new ItemRenderState();
-        MinecraftClient.getInstance().getItemModelManager().update(state, stack, mode, false, world, null, 0);
+        MinecraftClient.getInstance().getItemModelManager().update(state, stack, mode, world, null, 0);
         return state;
     }
 
-    private static ModelTransformationMode modeOf(int mode) {
-        ModelTransformationMode[] modes = ModelTransformationMode.values();
-        return mode >= 0 && mode < modes.length ? modes[mode] : ModelTransformationMode.NONE;
+    private static Transformation transformOf(ItemRenderState state) {
+        ItemRenderStateAccessor acc = (ItemRenderStateAccessor) state;
+        if (acc.dbh$getLayerCount() == 0) return Transformation.IDENTITY;
+        Transformation t = ((LayerRenderStateAccessor) (Object) acc.dbh$getLayers()[0]).dbh$getTransform();
+        return t == null ? Transformation.IDENTITY : t;
+    }
+
+    private static ItemDisplayContext modeOf(int mode) {
+        ItemDisplayContext[] modes = ItemDisplayContext.values();
+        return mode >= 0 && mode < modes.length ? modes[mode] : ItemDisplayContext.NONE;
     }
 
     private static VoxelShape computeShape(World world, ItemStack stack) {
-        ItemRenderState state = stateFor(world, stack, ModelTransformationMode.NONE);
+        ItemRenderState state = stateFor(world, stack, ItemDisplayContext.NONE);
         ItemRenderStateAccessor acc = (ItemRenderStateAccessor) state;
         ItemRenderState.LayerRenderState[] layers = acc.dbh$getLayers();
         int count = acc.dbh$getLayerCount();
         VoxelShape shape = VoxelShapes.empty();
-        Random random = Random.create(42L);
 
         for (int i = 0; i < count; i++) {
             LayerRenderStateAccessor layer = (LayerRenderStateAccessor) (Object) layers[i];
-            BakedModel model = layer.dbh$getModel();
-            if (model == null || layer.dbh$getSpecialModelType() != null) continue;
+            if (layer.dbh$getSpecialModelType() != null) continue;
 
-            Flat flat = model.hasDepth() ? null : new Flat();
-            for (Direction dir : Direction.values()) {
-                shape = addQuads(shape, model, dir, random, flat);
-            }
-            shape = addQuads(shape, model, null, random, flat);
+            List<BakedQuad> quads = layers[i].getQuads();
+            if (quads.isEmpty()) continue;
+
+            Flat flat = layer.dbh$getUseLight() ? null : new Flat();
+            shape = addQuads(shape, quads, flat);
 
             if (flat != null && !Float.isNaN(flat.x0)) {
                 shape = addFlat(shape, flat);
@@ -126,9 +130,9 @@ public final class ItemModelBounds {
         return shape;
     }
 
-    private static VoxelShape addQuads(VoxelShape shape, BakedModel model, Direction dir, Random random, Flat flat) {
-        for (BakedQuad quad : model.getQuads(null, dir, random)) {
-            int[] data = quad.getVertexData();
+    private static VoxelShape addQuads(VoxelShape shape, List<BakedQuad> quads, Flat flat) {
+        for (BakedQuad quad : quads) {
+            int[] data = quad.vertexData();
             int stride = data.length / 4;
             float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
@@ -146,8 +150,8 @@ public final class ItemModelBounds {
                 flat.zMin = Math.min(flat.zMin, minZ);
                 flat.zMax = Math.max(flat.zMax, maxZ);
                 if (Float.isNaN(flat.x0)) { flat.x0 = minX; flat.y0 = minY; flat.x1 = maxX; flat.y1 = maxY; }
-                if (quad.getFace() == Direction.SOUTH) {
-                    flat.sprite = quad.getSprite().getContents();
+                if (quad.face() == Direction.SOUTH) {
+                    flat.sprite = quad.sprite().getContents();
                 }
                 continue;
             }
@@ -162,18 +166,18 @@ public final class ItemModelBounds {
     }
 
     public static Matrix4f getInternalTransform(World world, ItemStack stack, int mode) {
-        ModelTransformationMode tm = modeOf(mode);
+        ItemDisplayContext tm = modeOf(mode);
         ItemRenderState state = stateFor(world, stack, tm);
 
         Matrix4f m = new Matrix4f().rotateY((float) Math.PI);
-        Transformation tf = state.getTransformation();
+        Transformation tf = transformOf(state);
         if (tf != Transformation.IDENTITY) {
             boolean left = mode == 1 || mode == 3;
-            float ry = tf.rotation.y(), rz = tf.rotation.z();
+            float ry = tf.rotation().y(), rz = tf.rotation().z();
             if (left) { ry = -ry; rz = -rz; }
-            m.translate((left ? -1 : 1) * tf.translation.x(), tf.translation.y(), tf.translation.z());
-            m.rotateXYZ(tf.rotation.x() * DisplayHitboxes.DEG, ry * DisplayHitboxes.DEG, rz * DisplayHitboxes.DEG);
-            m.scale(tf.scale.x(), tf.scale.y(), tf.scale.z());
+            m.translate((left ? -1 : 1) * tf.translation().x(), tf.translation().y(), tf.translation().z());
+            m.rotateXYZ(tf.rotation().x() * DisplayHitboxes.DEG, ry * DisplayHitboxes.DEG, rz * DisplayHitboxes.DEG);
+            m.scale(tf.scale().x(), tf.scale().y(), tf.scale().z());
         }
 
         m.translate(-0.5f, -0.5f, -0.5f);
@@ -181,22 +185,22 @@ public final class ItemModelBounds {
     }
 
     public static void applyInternalTransform(MatrixStack matrices, World world, ItemStack stack, int mode) {
-        ModelTransformationMode tm = modeOf(mode);
+        ItemDisplayContext tm = modeOf(mode);
         ItemRenderState state = stateFor(world, stack, tm);
 
         matrices.multiply(net.minecraft.util.math.RotationAxis.POSITIVE_Y.rotation((float) Math.PI));
-        Transformation tf = state.getTransformation();
+        Transformation tf = transformOf(state);
         if (tf != Transformation.IDENTITY) {
             boolean left = mode == 1 || mode == 3;
-            float ry = tf.rotation.y(), rz = tf.rotation.z();
+            float ry = tf.rotation().y(), rz = tf.rotation().z();
             if (left) { ry = -ry; rz = -rz; }
-            matrices.translate((left ? -1 : 1) * tf.translation.x(), tf.translation.y(), tf.translation.z());
+            matrices.translate((left ? -1 : 1) * tf.translation().x(), tf.translation().y(), tf.translation().z());
             matrices.multiply(new Quaternionf().rotationXYZ(
-                    tf.rotation.x() * DisplayHitboxes.DEG,
+                    tf.rotation().x() * DisplayHitboxes.DEG,
                     ry * DisplayHitboxes.DEG,
                     rz * DisplayHitboxes.DEG
             ));
-            matrices.scale(tf.scale.x(), tf.scale.y(), tf.scale.z());
+            matrices.scale(tf.scale().x(), tf.scale().y(), tf.scale().z());
         }
 
         matrices.translate(-0.5f, -0.5f, -0.5f);

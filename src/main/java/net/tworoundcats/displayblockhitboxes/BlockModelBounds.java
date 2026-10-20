@@ -4,17 +4,20 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.model.BakedModel;
 import net.minecraft.client.render.model.BakedQuad;
+import net.minecraft.client.render.model.BlockModelPart;
+import net.minecraft.client.render.model.BlockStateModel;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.random.Random;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.client.texture.Sprite;
 import net.minecraft.client.texture.SpriteContents;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public final class BlockModelBounds {
+    // No longer final, so it can be refreshed via the config screen!
     private static int N = DisplayHitboxConfig.get().blockModelResolution;
 
     private static final Cache<BlockState, VoxelShape> CACHE = CacheBuilder.newBuilder()
@@ -38,15 +41,17 @@ public final class BlockModelBounds {
     }
 
     private static VoxelShape computeShape(BlockState state) {
-        BakedModel model = MinecraftClient.getInstance().getBlockRenderManager().getModel(state);
+        BlockStateModel model = MinecraftClient.getInstance().getBlockRenderManager().getModel(state);
         VoxelShape shape = VoxelShapes.empty();
         boolean[] grid = new boolean[N * N * N];
 
-        Random random = Random.create(42L);
-        for (Direction dir : Direction.values()) {
-            shape = addQuads(shape, grid, state, model, dir, random);
+        List<BlockModelPart> parts = model.getParts(Random.create(42L));
+        for (BlockModelPart part : parts) {
+            for (Direction dir : Direction.values()) {
+                shape = addQuads(shape, grid, part.getQuads(dir));
+            }
+            shape = addQuads(shape, grid, part.getQuads(null));
         }
-        shape = addQuads(shape, grid, state, model, null, random);
         shape = addCells(shape, grid);
 
         if (shape.isEmpty()) {
@@ -55,9 +60,9 @@ public final class BlockModelBounds {
         return shape.simplify();
     }
 
-    private static VoxelShape addQuads(VoxelShape shape, boolean[] grid, BlockState state, BakedModel model, Direction dir, Random random) {
-        for (BakedQuad quad : model.getQuads(state, dir, random)) {
-            int[] data = quad.getVertexData();
+    private static VoxelShape addQuads(VoxelShape shape, boolean[] grid, List<BakedQuad> quads) {
+        for (BakedQuad quad : quads) {
+            int[] data = quad.vertexData();
             int stride = data.length / 4;
             float[] x = new float[4], y = new float[4], z = new float[4];
             float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
@@ -110,7 +115,7 @@ public final class BlockModelBounds {
     }
 
     private static void rasterize(boolean[] g, BakedQuad quad, float[] x, float[] y, float[] z) {
-        int[] data = quad.getVertexData();
+        int[] data = quad.vertexData();
         int stride = data.length / 4;
         float[] tu = new float[4], tv = new float[4];
         for (int j = 0; j < 4; j++) {
@@ -118,7 +123,7 @@ public final class BlockModelBounds {
             tv[j] = Float.intBitsToFloat(data[j * stride + 5]);
         }
 
-        Sprite sprite = quad.getSprite();
+        Sprite sprite = quad.sprite();
         SpriteContents contents = sprite == null ? null : sprite.getContents();
         float minU = 0, maxU = 0, minV = 0, maxV = 0;
         if (sprite != null) {
