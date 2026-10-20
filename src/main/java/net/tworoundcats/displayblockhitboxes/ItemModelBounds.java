@@ -5,7 +5,7 @@ import com.google.common.cache.CacheBuilder;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.model.BakedModel;
 import net.minecraft.client.render.model.BakedQuad;
-import net.minecraft.client.render.model.json.ModelTransformationMode;
+import net.minecraft.item.ModelTransformationMode;
 import net.minecraft.client.render.model.json.Transformation;
 import net.minecraft.client.texture.SpriteContents;
 import net.minecraft.client.util.math.MatrixStack;

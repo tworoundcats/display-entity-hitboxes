@@ -10,7 +10,6 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.decoration.DisplayEntity;
@@ -78,7 +77,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
             });
         });
 
-        WorldRenderEvents.AFTER_ENTITIES.register(context -> {
+        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(context -> {
             MinecraftClient mc = MinecraftClient.getInstance();
             boolean canPick = false;
             if (mc.interactionManager != null) {
@@ -116,6 +115,22 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         });
     }
 
+    private static void drawOutline(MatrixStack matrices, VertexConsumer vc, net.minecraft.util.shape.VoxelShape shape, int r, int g, int b, int a) {
+        MatrixStack.Entry entry = matrices.peek();
+        shape.forEachEdge((x1, y1, z1, x2, y2, z2) -> {
+            float dx = (float) (x2 - x1), dy = (float) (y2 - y1), dz = (float) (z2 - z1);
+            float len = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (len == 0.0f) return;
+            dx /= len; dy /= len; dz /= len;
+            vc.vertex(entry, (float) x1, (float) y1, (float) z1).color(r, g, b, a).normal(entry, dx, dy, dz);
+            vc.vertex(entry, (float) x2, (float) y2, (float) z2).color(r, g, b, a).normal(entry, dx, dy, dz);
+        });
+    }
+
+    private static void flushLines(VertexConsumerProvider consumers) {
+        if (consumers instanceof VertexConsumerProvider.Immediate imm) imm.draw(RenderLayer.getLines());
+    }
+
     private static void drawAccurateVisualOutline(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider consumers, Vec3d cam) {
         if (DisplayHitboxConfig.get().accurateHitboxes) {
             DisplayHitboxes.ShapeData data = DisplayHitboxes.getAccurateShape(display, true);
@@ -148,7 +163,8 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
                     }
                 }
 
-                WorldRenderer.drawShapeOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), data.shape(), 0.0, 0.0, 0.0, 0.0f, 0.0f, 0.0f, 0.4f, true);
+                drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), data.shape(), 0, 0, 0, 102);
+                flushLines(consumers);
                 matrices.pop();
                 return;
             }
@@ -157,7 +173,8 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         Box world = DisplayHitboxes.computeBox(display, true);
         if (world == null) world = display.getBoundingBox();
         Box box = world.offset(-cam.x, -cam.y, -cam.z);
-        WorldRenderer.drawBox(matrices, consumers.getBuffer(RenderLayer.getLines()), box, 0.0f, 0.0f, 0.0f, 0.4f);
+        drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0, 0, 0, 102);
+        flushLines(consumers);
     }
 
     private static void drawCollisionSlices(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider consumers, Vec3d cam) {
@@ -170,13 +187,15 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
             VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
             for (Box local : boxes) {
                 Box box = local.offset(dx, dy, dz);
-                WorldRenderer.drawBox(matrices, buffer, box, 1.0f, 1.0f, 1.0f, 1.0f);
+                drawOutline(matrices, buffer, net.minecraft.util.shape.VoxelShapes.cuboid(box), 255, 255, 255, 255);
             }
+            flushLines(consumers);
         } else {
             Box world = DisplayHitboxes.computeBox(display, true);
             if (world == null) world = display.getBoundingBox();
             Box box = world.offset(-cam.x, -cam.y, -cam.z);
-            WorldRenderer.drawBox(matrices, consumers.getBuffer(RenderLayer.getLines()), box, 1.0f, 1.0f, 1.0f, 1.0f);
+            drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 255, 255, 255, 255);
+            flushLines(consumers);
         }
     }
 

@@ -126,7 +126,7 @@ public final class DisplayHitboxes {
     }
 
     public static VoxelShape removeModelOffset(BlockState state, VoxelShape shape) {
-        Vec3d o = state.getModelOffset(EmptyBlockView.INSTANCE, BlockPos.ORIGIN);
+        Vec3d o = state.getModelOffset(BlockPos.ORIGIN);
         if (o.x == 0.0 && o.y == 0.0 && o.z == 0.0) return shape;
         return shape.offset(-o.x, -o.y, -o.z);
     }
