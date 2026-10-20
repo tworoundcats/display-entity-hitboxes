@@ -23,10 +23,10 @@ public class DisplayHitboxConfig {
     public boolean itemDisplayHitboxes = true;
     public boolean autoFixLithium = true;
     public boolean accurateHitboxes = true;
-    public String accurateHitboxes_info = "Required to be enabled when dealing with custom imported models or large structures.";
+    public String accurateHitboxes_info = "Makes all hitboxes more accurate. Required to be enabled when dealing with custom imported models or large structures.";
 
     public boolean displayPhysics = true;
-    public String displayPhysics_info = "Moving displays push you along and carry you. Client side, single player only.";
+    public String displayPhysics_info = "Moving displays push you along and carry you. May not work on some servers.";
     public double physicsContactMargin = 0.05;
     public double physicsStandTolerance = 0.15;
     public double physicsMaxSpeed = 3.0;
@@ -34,7 +34,7 @@ public class DisplayHitboxConfig {
     public boolean physicsKeepMomentum = true;
 
     public boolean originIndependentLighting = true;
-    public String originIndependentLighting_info = "Light is sampled around the middle of the model instead of at the origin point";
+    public String originIndependentLighting_info = "Light is sampled around the middle of the model instead of at the origin point.";
 
     public int blockModelResolution = 32;
     public String blockModelResolution_info = "Block models are turned into a grid (16 = 1/16th block resolution). Higher is more exact on slanted models.";
