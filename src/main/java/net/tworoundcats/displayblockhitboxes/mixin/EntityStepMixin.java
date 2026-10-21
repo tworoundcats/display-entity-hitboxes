@@ -27,7 +27,7 @@ public abstract class EntityStepMixin {
         float step = self.getStepHeight();
         if (step <= 0.0f) return;
 
-        World world = self.getWorld();
+        World world = self.getEntityWorld();
         Box box = self.getBoundingBox();
         Box area = box.stretch(movement.x, step, movement.z).expand(0.0, 0.0, 0.0);
         if (!nearDisplay(world, self, area)) return;

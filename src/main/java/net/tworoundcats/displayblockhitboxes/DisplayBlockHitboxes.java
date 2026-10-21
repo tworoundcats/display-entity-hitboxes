@@ -36,7 +36,7 @@ public class DisplayBlockHitboxes implements ModInitializer {
             if (!player.isCreative() || hand != Hand.MAIN_HAND) return ActionResult.PASS;
             if (!(entity instanceof DisplayEntity) || !DisplayHitboxes.isTargetable(entity)) return ActionResult.PASS;
 
-            if (world.isClient) {
+            if (world.isClient()) {
                 return ActionResult.PASS;
             }
 

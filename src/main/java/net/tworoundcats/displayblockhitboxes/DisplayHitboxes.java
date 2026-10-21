@@ -109,7 +109,7 @@ public final class DisplayHitboxes {
     }
 
     public static int sampleLight(DisplayEntity display) {
-        World world = display.getWorld();
+        World world = display.getEntityWorld();
         boolean isBlock = display instanceof DisplayEntity.BlockDisplayEntity;
         Vector3f c = isBlock ? new Vector3f(0.5f, 0.5f, 0.5f) : new Vector3f(0f, 0f, 0f);
         getBaseTransform(display).transformPosition(c);
@@ -188,8 +188,8 @@ public final class DisplayHitboxes {
 
             if (CLIENT) {
                 int mode = itemDisplay.getDataTracker().get(ItemDisplayEntityAccessor.getItemDisplay());
-                VoxelShape shape = ItemModelBounds.getShape(display.getWorld(), stack);
-                Matrix4f internal = ItemModelBounds.getInternalTransform(display.getWorld(), stack, mode);
+                VoxelShape shape = ItemModelBounds.getShape(display.getEntityWorld(), stack);
+                Matrix4f internal = ItemModelBounds.getInternalTransform(display.getEntityWorld(), stack, mode);
                 m.mul(internal);
                 return new ShapeData(shape, m);
             } else {
@@ -336,13 +336,13 @@ public final class DisplayHitboxes {
         m.prevInverse = null;
         m.moving = false;
         if (consecutive && Math.abs(prevShape.determinant()) > 1.0e-6) {
-            Vec3d pos = d.getPos();
+            Vec3d pos = d.getEntityPos();
             m.moving = !(prevPos.equals(pos) && prevShape.equals(cur));
             if (m.moving) m.prevInverse = new Matrix4f(prevShape).invert();
         }
         m.prevPos = prevPos;
         m.shape = cur;
-        m.pos = d.getPos();
+        m.pos = d.getEntityPos();
         m.tick = tick;
         return m;
     }
@@ -380,7 +380,7 @@ public final class DisplayHitboxes {
     }
 
     public static Box computeBox(DisplayEntity display, boolean forPicking) {
-        if (display.getWorld() == null) return null;
+        if (display.getEntityWorld() == null) return null;
 
         if (!forPicking && DisplayHitboxConfig.get().accurateHitboxes) {
             Box b = entryFor(display).bounds;

@@ -5,11 +5,11 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.VertexRendering;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.decoration.DisplayEntity;
@@ -32,6 +32,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DisplayBlockHitboxesClient implements ClientModInitializer {
 
     private static final Map<Integer, Boolean> PENDING_COLLISION_STATES = new ConcurrentHashMap<>();
+
+    private static final int OUTLINE_COLOR = 0x66000000;
+
+    private static volatile DisplayEntity pickedDisplay;
+    private static volatile boolean outlineDrawn;
+    private static volatile boolean slicesDrawn;
+    private static volatile long hitboxesSeenAt = Long.MIN_VALUE;
+
+    public static void noteVanillaHitboxes() {
+        hitboxesSeenAt = System.nanoTime();
+    }
+
+    private static boolean hitboxesVisible() {
+        return System.nanoTime() - hitboxesSeenAt < 250_000_000L;
+    }
 
     @Override
     public void onInitializeClient() {
@@ -77,61 +92,40 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
             });
         });
 
-        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(context -> {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            boolean canPick = false;
-            if (mc.interactionManager != null) {
-                GameMode mode = mc.interactionManager.getCurrentGameMode();
-                canPick = (mode != GameMode.SPECTATOR && mode != GameMode.ADVENTURE);
-            }
-
-            boolean f3b = mc.getEntityRenderDispatcher().shouldRenderHitboxes();
-            HitResult hit = mc.crosshairTarget;
-            Entity targetEntity = (hit instanceof EntityHitResult entityHit) ? entityHit.getEntity() : null;
-
-            if (!canPick) targetEntity = null;
-
-            VertexConsumerProvider consumers = context.consumers();
-            if (consumers == null) return;
-            MatrixStack matrices = context.matrixStack();
-            Vec3d cam = context.camera().getPos();
-
-            if (!f3b && targetEntity instanceof DisplayEntity display && DisplayHitboxes.isTargetable(display)) {
-                drawAccurateVisualOutline(display, matrices, consumers, cam);
-            }
-
-            if (f3b) {
-                net.minecraft.client.render.Frustum frustum = context.frustum();
-                for (DisplayEntity display : DisplayHitboxes.displays(mc.world)) {
-                    if (display.squaredDistanceTo(cam) > 32 * 32) continue;
-                    if (!DisplayHitboxes.isTargetable(display)) continue;
-
-                    Box bounds = display.getBoundingBox();
-                    if (frustum != null && !frustum.isVisible(bounds)) continue;
-
-                    drawCollisionSlices(display, matrices, consumers, cam);
-                }
-            }
-        });
     }
 
-    private static void drawOutline(MatrixStack matrices, VertexConsumer vc, net.minecraft.util.shape.VoxelShape shape, int r, int g, int b, int a) {
-        MatrixStack.Entry entry = matrices.peek();
-        shape.forEachEdge((x1, y1, z1, x2, y2, z2) -> {
-            float dx = (float) (x2 - x1), dy = (float) (y2 - y1), dz = (float) (z2 - z1);
-            float len = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (len == 0.0f) return;
-            dx /= len; dy /= len; dz /= len;
-            vc.vertex(entry, (float) x1, (float) y1, (float) z1).color(r, g, b, a).normal(entry, dx, dy, dz);
-            vc.vertex(entry, (float) x2, (float) y2, (float) z2).color(r, g, b, a).normal(entry, dx, dy, dz);
-        });
-    }
+    public static void renderOutline(String hook) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.world == null) return;
 
-    private static void flushLines(VertexConsumerProvider consumers) {
-        if (consumers instanceof VertexConsumerProvider.Immediate imm) imm.draw(RenderLayer.getLines());
-    }
+        VertexConsumerProvider.Immediate consumers = mc.getBufferBuilders().getEntityVertexConsumers();
+        MatrixStack matrices = new MatrixStack();
+        Vec3d cam = mc.gameRenderer.getCamera().getPos();
 
-    private static void drawAccurateVisualOutline(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider consumers, Vec3d cam) {
+        if (hitboxesVisible()) {
+            if (slicesDrawn) return;
+            slicesDrawn = true;
+            for (DisplayEntity other : DisplayHitboxes.displays(mc.world)) {
+                if (other.squaredDistanceTo(cam) > 32 * 32) continue;
+                if (!DisplayHitboxes.isTargetable(other)) continue;
+                drawCollisionSlices(other, matrices, consumers, cam);
+            }
+            return;
+        }
+
+        if (mc.interactionManager != null) {
+            GameMode mode = mc.interactionManager.getCurrentGameMode();
+            if (mode == GameMode.SPECTATOR || mode == GameMode.ADVENTURE) return;
+        }
+
+        DisplayEntity display = pickedDisplay;
+        if (display != null) {
+            if (outlineDrawn) return;
+            outlineDrawn = true;
+        }
+
+        if (display == null || display.isRemoved() || !DisplayHitboxes.isTargetable(display)) return;
+
         if (DisplayHitboxConfig.get().accurateHitboxes) {
             DisplayHitboxes.ShapeData data = DisplayHitboxes.getAccurateShape(display, true);
             if (data != null && !data.shape().isEmpty()) {
@@ -152,19 +146,17 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
 
                 if (display instanceof DisplayEntity.ItemDisplayEntity itemDisplay) {
                     ItemStack stack = null;
-                    try {
-                        net.minecraft.inventory.StackReference ref = itemDisplay.getStackReference(0);
-                        if (ref != null) stack = ref.get();
-                    } catch (Exception ignored) {}
+                    net.minecraft.inventory.StackReference ref = itemDisplay.getStackReference(0);
+                    if (ref != null) stack = ref.get();
 
                     if (stack != null && !stack.isEmpty()) {
                         int mode = itemDisplay.getDataTracker().get(ItemDisplayEntityAccessor.getItemDisplay());
-                        ItemModelBounds.applyInternalTransform(matrices, display.getWorld(), stack, mode);
+                        ItemModelBounds.applyInternalTransform(matrices, display.getEntityWorld(), stack, mode);
                     }
                 }
 
-                drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), data.shape(), 0, 0, 0, 102);
-                flushLines(consumers);
+                VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), data.shape(), 0.0, 0.0, 0.0, OUTLINE_COLOR);
+                consumers.draw(RenderLayer.getLines());
                 matrices.pop();
                 return;
             }
@@ -172,12 +164,13 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
 
         Box world = DisplayHitboxes.computeBox(display, true);
         if (world == null) world = display.getBoundingBox();
+
         Box box = world.offset(-cam.x, -cam.y, -cam.z);
-        drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0, 0, 0, 102);
-        flushLines(consumers);
+        VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, OUTLINE_COLOR);
+        consumers.draw(RenderLayer.getLines());
     }
 
-    private static void drawCollisionSlices(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider consumers, Vec3d cam) {
+    private static void drawCollisionSlices(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider.Immediate consumers, Vec3d cam) {
         double dx = display.getX() - cam.x;
         double dy = display.getY() - cam.y;
         double dz = display.getZ() - cam.z;
@@ -187,19 +180,21 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
             VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
             for (Box local : boxes) {
                 Box box = local.offset(dx, dy, dz);
-                drawOutline(matrices, buffer, net.minecraft.util.shape.VoxelShapes.cuboid(box), 255, 255, 255, 255);
+                VertexRendering.drawOutline(matrices, buffer, net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, 0xFFFFFFFF);
             }
-            flushLines(consumers);
         } else {
             Box world = DisplayHitboxes.computeBox(display, true);
             if (world == null) world = display.getBoundingBox();
             Box box = world.offset(-cam.x, -cam.y, -cam.z);
-            drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 255, 255, 255, 255);
-            flushLines(consumers);
+            VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, 0xFFFFFFFF);
         }
+        consumers.draw(RenderLayer.getLines());
     }
 
     public static void pick(float tickDelta) {
+        pickedDisplay = null;
+        outlineDrawn = false;
+        slicesDrawn = false;
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.world == null || mc.player == null || mc.interactionManager == null) return;
 
@@ -216,7 +211,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
             bound = Math.min(bound, cur.getPos().squaredDistanceTo(eye));
         }
 
-        Entity best = null;
+        DisplayEntity best = null;
         Vec3d bestPos = null;
 
         Box searchBox = new Box(
@@ -237,7 +232,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
             if (hit.isEmpty()) continue;
 
             double d = hit.get().squaredDistanceTo(eye);
-            if (d < bound) {
+            if (d <= bound + 1.0e-3) {
                 bound = d;
                 best = display;
                 bestPos = hit.get();
@@ -246,6 +241,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
 
         if (best != null) {
             mc.crosshairTarget = new EntityHitResult(best, bestPos);
+            pickedDisplay = best;
         }
     }
 }
