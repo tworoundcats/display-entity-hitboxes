@@ -48,6 +48,13 @@ public final class DisplayHitboxes {
         return false;
     }
 
+    public static boolean isTargetableType(net.minecraft.entity.EntityType<?> type) {
+        DisplayHitboxConfig c = DisplayHitboxConfig.get();
+        if (type == net.minecraft.entity.EntityType.BLOCK_DISPLAY) return c.blockDisplayHitboxes;
+        if (type == net.minecraft.entity.EntityType.ITEM_DISPLAY) return c.itemDisplayHitboxes;
+        return false;
+    }
+
     public static boolean hasCollision(Entity e) {
         final Matrix4f shapeTransform;
 
