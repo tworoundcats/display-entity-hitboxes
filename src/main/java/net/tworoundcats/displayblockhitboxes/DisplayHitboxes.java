@@ -50,8 +50,9 @@ public final class DisplayHitboxes {
 
     public static boolean isTargetableType(net.minecraft.world.entity.EntityType<?> type) {
         DisplayHitboxConfig c = DisplayHitboxConfig.get();
-        if (type == net.minecraft.world.entity.EntityType.BLOCK_DISPLAY) return c.blockDisplayHitboxes;
-        if (type == net.minecraft.world.entity.EntityType.ITEM_DISPLAY) return c.itemDisplayHitboxes;
+        String id = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(type).getPath();
+        if (id.equals("block_display")) return c.blockDisplayHitboxes;
+        if (id.equals("item_display")) return c.itemDisplayHitboxes;
         return false;
     }
 

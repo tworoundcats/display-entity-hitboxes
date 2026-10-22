@@ -3,8 +3,7 @@ package net.tworoundcats.displayblockhitboxes;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.ShapeRenderer;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Display;
@@ -25,7 +24,6 @@ import org.joml.Vector3f;
 
 import java.util.Optional;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -95,12 +93,12 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
 
     }
 
-    public static void renderOutline(MultiBufferSource.BufferSource consumers) {
+    public static void renderOutline(SubmitNodeCollector consumers) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
 
         PoseStack matrices = new PoseStack();
-        Vec3 cam = mc.gameRenderer.getMainCamera().position();
+        Vec3 cam = mc.gameRenderer.mainCamera().position();
 
         if (hitboxesVisible()) {
             if (slicesDrawn) return;
@@ -155,8 +153,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
                     }
                 }
 
-                ShapeRenderer.renderShape(matrices, consumers.getBuffer(RenderTypes.lines()), data.shape(), 0.0, 0.0, 0.0, OUTLINE_COLOR, LINE_WIDTH);
-                consumers.endBatch(RenderTypes.lines());
+                consumers.submitShapeOutline(matrices, data.shape(), RenderTypes.lines(), OUTLINE_COLOR, LINE_WIDTH, false);
                 matrices.popPose();
                 return;
             }
@@ -166,11 +163,10 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         if (world == null) world = display.getBoundingBox();
 
         AABB box = world.move(-cam.x, -cam.y, -cam.z);
-        ShapeRenderer.renderShape(matrices, consumers.getBuffer(RenderTypes.lines()), net.minecraft.world.phys.shapes.Shapes.create(box), 0.0, 0.0, 0.0, OUTLINE_COLOR, LINE_WIDTH);
-        consumers.endBatch(RenderTypes.lines());
+        consumers.submitShapeOutline(matrices, net.minecraft.world.phys.shapes.Shapes.create(box), RenderTypes.lines(), OUTLINE_COLOR, LINE_WIDTH, false);
     }
 
-    private static void drawCollisionSlices(Display display, PoseStack matrices, MultiBufferSource.BufferSource consumers, Vec3 cam) {
+    private static void drawCollisionSlices(Display display, PoseStack matrices, SubmitNodeCollector consumers, Vec3 cam) {
         double dx = display.getX() - cam.x;
         double dy = display.getY() - cam.y;
         double dz = display.getZ() - cam.z;
@@ -178,25 +174,22 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         // simple mode collides with one box, show exactly that box
         if (!DisplayHitboxConfig.get().accurateHitboxes) {
             AABB box = display.getBoundingBox().move(-cam.x, -cam.y, -cam.z);
-            ShapeRenderer.renderShape(matrices, consumers.getBuffer(RenderTypes.lines()), net.minecraft.world.phys.shapes.Shapes.create(box), 0.0, 0.0, 0.0, 0xFFFFFFFF, LINE_WIDTH);
-            consumers.endBatch(RenderTypes.lines());
+            consumers.submitShapeOutline(matrices, net.minecraft.world.phys.shapes.Shapes.create(box), RenderTypes.lines(), 0xFFFFFFFF, LINE_WIDTH, false);
             return;
         }
 
         java.util.List<AABB> boxes = DisplayHitboxes.getCollisionBoxes(display);
         if (boxes != null && !boxes.isEmpty()) {
-            VertexConsumer buffer = consumers.getBuffer(RenderTypes.lines());
             for (AABB local : boxes) {
                 AABB box = local.move(dx, dy, dz);
-                ShapeRenderer.renderShape(matrices, buffer, net.minecraft.world.phys.shapes.Shapes.create(box), 0.0, 0.0, 0.0, 0xFFFFFFFF, LINE_WIDTH);
+                consumers.submitShapeOutline(matrices, net.minecraft.world.phys.shapes.Shapes.create(box), RenderTypes.lines(), 0xFFFFFFFF, LINE_WIDTH, false);
             }
         } else {
             AABB world = DisplayHitboxes.computeBox(display, true);
             if (world == null) world = display.getBoundingBox();
             AABB box = world.move(-cam.x, -cam.y, -cam.z);
-            ShapeRenderer.renderShape(matrices, consumers.getBuffer(RenderTypes.lines()), net.minecraft.world.phys.shapes.Shapes.create(box), 0.0, 0.0, 0.0, 0xFFFFFFFF, LINE_WIDTH);
+            consumers.submitShapeOutline(matrices, net.minecraft.world.phys.shapes.Shapes.create(box), RenderTypes.lines(), 0xFFFFFFFF, LINE_WIDTH, false);
         }
-        consumers.endBatch(RenderTypes.lines());
     }
 
     public static void pick(float tickDelta) {
