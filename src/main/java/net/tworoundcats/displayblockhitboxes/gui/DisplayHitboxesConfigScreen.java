@@ -4,8 +4,8 @@ import me.shedaniel.clothconfig2.api.AbstractConfigListEntry;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 import net.tworoundcats.displayblockhitboxes.BlockModelBounds;
 import net.tworoundcats.displayblockhitboxes.DisplayHitboxConfig;
 import net.tworoundcats.displayblockhitboxes.DisplayHitboxes;
@@ -210,7 +210,7 @@ public class DisplayHitboxesConfigScreen {
 
         ConfigBuilder builder = ConfigBuilder.create()
                 .setParentScreen(parent)
-                .setTitle(Text.literal("Display Entity Hitboxes"));
+                .setTitle(Component.literal("Display Entity Hitboxes"));
 
         State s = new State();
         DisplayHitboxConfig.Preset[] availablePresets = DisplayHitboxConfig.Preset.values();
@@ -231,51 +231,51 @@ public class DisplayHitboxesConfigScreen {
 
         ConfigEntryBuilder entryBuilder = builder.entryBuilder();
 
-        ConfigCategory general = builder.getOrCreateCategory(Text.literal("General"));
+        ConfigCategory general = builder.getOrCreateCategory(Component.literal("General"));
 
-        general.addEntry(entryBuilder.startBooleanToggle(Text.literal("Accurate Hitboxes"), config.accurateHitboxes)
+        general.addEntry(entryBuilder.startBooleanToggle(Component.literal("Accurate Hitboxes"), config.accurateHitboxes)
                 .setDefaultValue(true)
-                .setTooltip(Text.literal(config.accurateHitboxes_info))
+                .setTooltip(Component.literal(config.accurateHitboxes_info))
                 .setSaveConsumer(v -> config.accurateHitboxes = v)
                 .build());
 
-        general.addEntry(entryBuilder.startBooleanToggle(Text.literal("Block Display Hitboxes"), config.blockDisplayHitboxes)
+        general.addEntry(entryBuilder.startBooleanToggle(Component.literal("Block Display Hitboxes"), config.blockDisplayHitboxes)
                 .setDefaultValue(true)
-                .setTooltip(Text.literal("Generate solid hitboxes and physics for Block Display entities."))
+                .setTooltip(Component.literal("Generate solid hitboxes and physics for Block Display entities."))
                 .setSaveConsumer(v -> config.blockDisplayHitboxes = v)
                 .build());
 
-        general.addEntry(entryBuilder.startBooleanToggle(Text.literal("Item Display Hitboxes"), config.itemDisplayHitboxes)
+        general.addEntry(entryBuilder.startBooleanToggle(Component.literal("Item Display Hitboxes"), config.itemDisplayHitboxes)
                 .setDefaultValue(true)
-                .setTooltip(Text.literal("Generate solid hitboxes and physics for Item Display entities."))
+                .setTooltip(Component.literal("Generate solid hitboxes and physics for Item Display entities."))
                 .setSaveConsumer(v -> config.itemDisplayHitboxes = v)
                 .build());
 
-        general.addEntry(entryBuilder.startBooleanToggle(Text.literal("Origin Independent Lighting"), config.originIndependentLighting)
+        general.addEntry(entryBuilder.startBooleanToggle(Component.literal("Origin Independent Lighting"), config.originIndependentLighting)
                 .setDefaultValue(true)
-                .setTooltip(Text.literal(config.originIndependentLighting_info))
+                .setTooltip(Component.literal(config.originIndependentLighting_info))
                 .setSaveConsumer(v -> config.originIndependentLighting = v)
                 .build());
 
-        ConfigCategory physics = builder.getOrCreateCategory(Text.literal("Physics"));
+        ConfigCategory physics = builder.getOrCreateCategory(Component.literal("Physics"));
 
-        physics.addEntry(entryBuilder.startBooleanToggle(Text.literal("Display Physics"), config.displayPhysics)
+        physics.addEntry(entryBuilder.startBooleanToggle(Component.literal("Display Physics"), config.displayPhysics)
                 .setDefaultValue(true)
-                .setTooltip(Text.literal(config.displayPhysics_info))
+                .setTooltip(Component.literal(config.displayPhysics_info))
                 .setSaveConsumer(v -> config.displayPhysics = v)
                 .build());
 
-        physics.addEntry(entryBuilder.startBooleanToggle(Text.literal("Keep Momentum"), config.physicsKeepMomentum)
+        physics.addEntry(entryBuilder.startBooleanToggle(Component.literal("Keep Momentum"), config.physicsKeepMomentum)
                 .setDefaultValue(true)
-                .setTooltip(Text.literal("Players keep their momentum when walking/falling off of moving displays."))
+                .setTooltip(Component.literal("Players keep their momentum when walking/falling off of moving displays."))
                 .setSaveConsumer(v -> config.physicsKeepMomentum = v)
                 .build());
 
-        ConfigCategory accuracy = builder.getOrCreateCategory(Text.literal("Accuracy"));
+        ConfigCategory accuracy = builder.getOrCreateCategory(Component.literal("Accuracy"));
 
-        s.presetEntry = entryBuilder.startSelector(Text.literal("Quality Preset"), availablePresets, config.preset)
+        s.presetEntry = entryBuilder.startSelector(Component.literal("Quality Preset"), availablePresets, config.preset)
                 .setDefaultValue(defaults.preset)
-                .setTooltip(Text.literal("Select a preset to apply it. Custom slider tweaks switch this to Custom automatically."))
+                .setTooltip(Component.literal("Select a preset to apply it. Custom slider tweaks switch this to Custom automatically."))
                 .setErrorSupplier(v -> {
                     sync(s);
                     return Optional.empty();
@@ -283,9 +283,9 @@ public class DisplayHitboxesConfigScreen {
                 .build();
         accuracy.addEntry(s.presetEntry);
 
-        s.blockResEntry = entryBuilder.startIntSlider(Text.literal("Block Model Resolution"), config.blockModelResolution, 4, 128)
+        s.blockResEntry = entryBuilder.startIntSlider(Component.literal("Block Model Resolution"), config.blockModelResolution, 4, 128)
                 .setDefaultValue(defaults.blockModelResolution)
-                .setTooltip(Text.literal(config.blockModelResolution_info))
+                .setTooltip(Component.literal(config.blockModelResolution_info))
                 .setSaveConsumer(v -> config.blockModelResolution = v)
                 .setErrorSupplier(v -> {
                     sync(s);
@@ -294,9 +294,9 @@ public class DisplayHitboxesConfigScreen {
                 .build();
         accuracy.addEntry(s.blockResEntry);
 
-        s.rotatedEntry = entryBuilder.startIntSlider(Text.literal("Rotated Slices Per Block"), config.rotatedSlicesPerBlock, 2, 128)
+        s.rotatedEntry = entryBuilder.startIntSlider(Component.literal("Rotated Slices Per Block"), config.rotatedSlicesPerBlock, 2, 128)
                 .setDefaultValue(defaults.rotatedSlicesPerBlock)
-                .setTooltip(Text.literal(config.rotatedSlicesPerBlock_info))
+                .setTooltip(Component.literal(config.rotatedSlicesPerBlock_info))
                 .setSaveConsumer(v -> config.rotatedSlicesPerBlock = v)
                 .setErrorSupplier(v -> {
                     sync(s);
@@ -305,10 +305,10 @@ public class DisplayHitboxesConfigScreen {
                 .build();
         accuracy.addEntry(s.rotatedEntry);
 
-        s.maxRotatedEntry = entryBuilder.startIntField(Text.literal("Max Rotated Slices"), config.maxRotatedSlices)
+        s.maxRotatedEntry = entryBuilder.startIntField(Component.literal("Max Rotated Slices"), config.maxRotatedSlices)
                 .setDefaultValue(defaults.maxRotatedSlices)
                 .setMin(1).setMax(2048)
-                .setTooltip(Text.literal(config.maxRotatedSlices_info))
+                .setTooltip(Component.literal(config.maxRotatedSlices_info))
                 .setSaveConsumer(v -> config.maxRotatedSlices = v)
                 .setErrorSupplier(v -> {
                     sync(s);
@@ -317,9 +317,9 @@ public class DisplayHitboxesConfigScreen {
                 .build();
         accuracy.addEntry(s.maxRotatedEntry);
 
-        s.tiltedEntry = entryBuilder.startIntSlider(Text.literal("Tilted Grid Resolution"), config.tiltedResolutionPerBlock, 2, 64)
+        s.tiltedEntry = entryBuilder.startIntSlider(Component.literal("Tilted Grid Resolution"), config.tiltedResolutionPerBlock, 2, 64)
                 .setDefaultValue(defaults.tiltedResolutionPerBlock)
-                .setTooltip(Text.literal(config.tiltedResolutionPerBlock_info))
+                .setTooltip(Component.literal(config.tiltedResolutionPerBlock_info))
                 .setSaveConsumer(v -> config.tiltedResolutionPerBlock = v)
                 .setErrorSupplier(v -> {
                     sync(s);
@@ -328,10 +328,10 @@ public class DisplayHitboxesConfigScreen {
                 .build();
         accuracy.addEntry(s.tiltedEntry);
 
-        s.maxTiltedEntry = entryBuilder.startIntField(Text.literal("Max Tilted Resolution"), config.maxTiltedResolution)
+        s.maxTiltedEntry = entryBuilder.startIntField(Component.literal("Max Tilted Resolution"), config.maxTiltedResolution)
                 .setDefaultValue(defaults.maxTiltedResolution)
                 .setMin(1).setMax(256)
-                .setTooltip(Text.literal(config.maxTiltedResolution_info))
+                .setTooltip(Component.literal(config.maxTiltedResolution_info))
                 .setSaveConsumer(v -> config.maxTiltedResolution = v)
                 .setErrorSupplier(v -> {
                     sync(s);
@@ -340,9 +340,9 @@ public class DisplayHitboxesConfigScreen {
                 .build();
         accuracy.addEntry(s.maxTiltedEntry);
 
-        s.dynamicEntry = entryBuilder.startBooleanToggle(Text.literal("Dynamic Max Slices"), config.dynamicMaxSlices)
+        s.dynamicEntry = entryBuilder.startBooleanToggle(Component.literal("Dynamic Max Slices"), config.dynamicMaxSlices)
                 .setDefaultValue(defaults.dynamicMaxSlices)
-                .setTooltip(Text.literal(config.dynamicMaxSlices_info))
+                .setTooltip(Component.literal(config.dynamicMaxSlices_info))
                 .setSaveConsumer(v -> config.dynamicMaxSlices = v)
                 .setErrorSupplier(v -> {
                     sync(s);

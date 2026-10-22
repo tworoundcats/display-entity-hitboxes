@@ -2,19 +2,19 @@ package net.tworoundcats.displayblockhitboxes;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.model.BakedQuad;
-import net.minecraft.client.render.model.BlockModelPart;
-import net.minecraft.client.render.model.BlockStateModel;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.random.Random;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
-import net.minecraft.client.texture.Sprite;
-import net.minecraft.client.texture.SpriteContents;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.model.geometry.BakedQuad;
+import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
+import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
+import net.minecraft.client.renderer.texture.SpriteContents;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.core.Direction;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class BlockModelBounds {
     // No longer final, so it can be refreshed via the config screen!
@@ -41,12 +41,13 @@ public final class BlockModelBounds {
     }
 
     private static VoxelShape computeShape(BlockState state) {
-        BlockStateModel model = MinecraftClient.getInstance().getBlockRenderManager().getModel(state);
-        VoxelShape shape = VoxelShapes.empty();
+        BlockStateModel model = Minecraft.getInstance().getModelManager().getBlockStateModelSet().get(state);
+        VoxelShape shape = Shapes.empty();
         boolean[] grid = new boolean[N * N * N];
 
-        List<BlockModelPart> parts = model.getParts(Random.create(42L));
-        for (BlockModelPart part : parts) {
+        List<BlockStateModelPart> parts = new java.util.ArrayList<>();
+        model.collectParts(RandomSource.create(42L), parts);
+        for (BlockStateModelPart part : parts) {
             for (Direction dir : Direction.values()) {
                 shape = addQuads(shape, grid, part.getQuads(dir));
             }
@@ -55,9 +56,9 @@ public final class BlockModelBounds {
         shape = addCells(shape, grid);
 
         if (shape.isEmpty()) {
-            return DisplayHitboxes.removeModelOffset(state, state.getOutlineShape(net.minecraft.world.EmptyBlockView.INSTANCE, net.minecraft.util.math.BlockPos.ORIGIN));
+            return DisplayHitboxes.removeModelOffset(state, state.getShape(net.minecraft.world.level.EmptyBlockGetter.INSTANCE, net.minecraft.core.BlockPos.ZERO));
         }
-        return shape.simplify();
+        return shape.optimize();
     }
 
     private static VoxelShape addQuads(VoxelShape shape, boolean[] grid, List<BakedQuad> quads) {
@@ -67,7 +68,7 @@ public final class BlockModelBounds {
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
 
             for (int j = 0; j < 4; j++) {
-                org.joml.Vector3fc pos = quad.getPosition(j);
+                org.joml.Vector3fc pos = quad.position(j);
                 x[j] = pos.x();
                 y[j] = pos.y();
                 z[j] = pos.z();
@@ -96,7 +97,7 @@ public final class BlockModelBounds {
             if (dy < 0.001f) { minY -= 0.005f; maxY += 0.005f; }
             if (dz < 0.001f) { minZ -= 0.005f; maxZ += 0.005f; }
 
-            shape = VoxelShapes.union(shape, VoxelShapes.cuboid(minX, minY, minZ, maxX, maxY, maxZ));
+            shape = Shapes.or(shape, Shapes.box(minX, minY, minZ, maxX, maxY, maxZ));
         }
         return shape;
     }
@@ -119,12 +120,12 @@ public final class BlockModelBounds {
     }
 
     private static void rasterize(boolean[] g, BakedQuad quad, float[] x, float[] y, float[] z) {
-        Sprite sprite = quad.sprite();
-        SpriteContents contents = sprite == null ? null : sprite.getContents();
+        TextureAtlasSprite sprite = quad.materialInfo().sprite();
+        SpriteContents contents = sprite == null ? null : sprite.contents();
         float minU = 0, maxU = 0, minV = 0, maxV = 0;
         if (sprite != null) {
-            minU = sprite.getMinU(); maxU = sprite.getMaxU();
-            minV = sprite.getMinV(); maxV = sprite.getMaxV();
+            minU = sprite.getU0(); maxU = sprite.getU1();
+            minV = sprite.getV0(); maxV = sprite.getV1();
         }
         boolean alpha = contents != null && maxU > minU && maxV > minV;
 
@@ -132,7 +133,7 @@ public final class BlockModelBounds {
         if (alpha) {
             float[] a = new float[4], b = new float[4];
             for (int j = 0; j < 4; j++) {
-                long uv = quad.getTexcoords(j);
+                long uv = quad.packedUV(j);
                 a[j] = Float.intBitsToFloat((int) uv);
                 b[j] = Float.intBitsToFloat((int) (uv >>> 32));
             }
@@ -169,11 +170,11 @@ public final class BlockModelBounds {
                 if (alpha) {
                     float pu = (1 - v) * ((1 - u) * fu[0] + u * fu[1]) + v * ((1 - u) * fu[3] + u * fu[2]);
                     float pv = (1 - v) * ((1 - u) * fv[0] + u * fv[1]) + v * ((1 - u) * fv[3] + u * fv[2]);
-                    int tx = (int) Math.floor(pu * contents.getWidth());
-                    int ty = (int) Math.floor(pv * contents.getHeight());
-                    tx = Math.max(0, Math.min(contents.getWidth() - 1, tx));
-                    ty = Math.max(0, Math.min(contents.getHeight() - 1, ty));
-                    if (contents.isPixelTransparent(0, tx, ty)) continue;
+                    int tx = (int) Math.floor(pu * contents.width());
+                    int ty = (int) Math.floor(pv * contents.height());
+                    tx = Math.max(0, Math.min(contents.width() - 1, tx));
+                    ty = Math.max(0, Math.min(contents.height() - 1, ty));
+                    if (contents.isTransparent(0, tx, ty)) continue;
                 }
 
                 float px = (1 - v) * ((1 - u) * x[0] + u * x[1]) + v * ((1 - u) * x[3] + u * x[2]);
@@ -202,7 +203,7 @@ public final class BlockModelBounds {
             for (int yy = y; yy <= y2; yy++) for (int zz = z; zz <= z2; zz++) for (int xx = x; xx <= x2; xx++) {
                 used[(yy * N + zz) * N + xx] = true;
             }
-            shape = VoxelShapes.union(shape, VoxelShapes.cuboid(
+            shape = Shapes.or(shape, Shapes.box(
                     (double) x / N, (double) y / N, (double) z / N,
                     (double) (x2 + 1) / N, (double) (y2 + 1) / N, (double) (z2 + 1) / N));
         }

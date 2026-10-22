@@ -2,20 +2,20 @@ package net.tworoundcats.displayblockhitboxes;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.item.ItemRenderState;
-import net.minecraft.client.render.model.BakedQuad;
-import net.minecraft.item.ItemDisplayContext;
-import net.minecraft.client.render.model.json.Transformation;
-import net.minecraft.client.texture.SpriteContents;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.component.ComponentMap;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
-import net.minecraft.world.World;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.model.geometry.BakedQuad;
+import net.minecraft.client.resources.model.cuboid.ItemTransform;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.client.renderer.texture.SpriteContents;
+import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponentMap;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.tworoundcats.displayblockhitboxes.mixin.ItemRenderStateAccessor;
 import net.tworoundcats.displayblockhitboxes.mixin.LayerRenderStateAccessor;
 import org.joml.Matrix4f;
@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public final class ItemModelBounds {
-    private record Key(Item item, ComponentMap components) {}
+    private record Key(Item item, DataComponentMap components) {}
 
     private static final Cache<Key, VoxelShape> CACHE = CacheBuilder.newBuilder()
             .maximumSize(512)
@@ -38,7 +38,7 @@ public final class ItemModelBounds {
         CACHE.invalidateAll();
     }
 
-    public static VoxelShape getShape(World world, ItemStack stack) {
+    public static VoxelShape getShape(Level world, ItemStack stack) {
         Key key = new Key(stack.getItem(), stack.copy().getComponents());
 
         try {
@@ -54,17 +54,17 @@ public final class ItemModelBounds {
         float zMin = Float.MAX_VALUE, zMax = -Float.MAX_VALUE;
     }
 
-    private static ItemRenderState stateFor(World world, ItemStack stack, ItemDisplayContext mode) {
-        ItemRenderState state = new ItemRenderState();
-        MinecraftClient.getInstance().getItemModelManager().update(state, stack, mode, world, null, 0);
+    private static ItemStackRenderState stateFor(Level world, ItemStack stack, ItemDisplayContext mode) {
+        ItemStackRenderState state = new ItemStackRenderState();
+        Minecraft.getInstance().getItemModelResolver().appendItemLayers(state, stack, mode, world, null, 0);
         return state;
     }
 
-    private static Transformation transformOf(ItemRenderState state) {
+    private static ItemTransform transformOf(ItemStackRenderState state) {
         ItemRenderStateAccessor acc = (ItemRenderStateAccessor) state;
-        if (acc.dbh$getLayerCount() == 0) return Transformation.IDENTITY;
-        Transformation t = ((LayerRenderStateAccessor) (Object) acc.dbh$getLayers()[0]).dbh$getTransform();
-        return t == null ? Transformation.IDENTITY : t;
+        if (acc.dbh$getLayerCount() == 0) return ItemTransform.NO_TRANSFORM;
+        ItemTransform t = ((LayerRenderStateAccessor) (Object) acc.dbh$getLayers()[0]).dbh$getTransform();
+        return t == null ? ItemTransform.NO_TRANSFORM : t;
     }
 
     private static ItemDisplayContext modeOf(int mode) {
@@ -72,18 +72,18 @@ public final class ItemModelBounds {
         return mode >= 0 && mode < modes.length ? modes[mode] : ItemDisplayContext.NONE;
     }
 
-    private static VoxelShape computeShape(World world, ItemStack stack) {
-        ItemRenderState state = stateFor(world, stack, ItemDisplayContext.NONE);
+    private static VoxelShape computeShape(Level world, ItemStack stack) {
+        ItemStackRenderState state = stateFor(world, stack, ItemDisplayContext.NONE);
         ItemRenderStateAccessor acc = (ItemRenderStateAccessor) state;
-        ItemRenderState.LayerRenderState[] layers = acc.dbh$getLayers();
+        ItemStackRenderState.LayerRenderState[] layers = acc.dbh$getLayers();
         int count = acc.dbh$getLayerCount();
-        VoxelShape shape = VoxelShapes.empty();
+        VoxelShape shape = Shapes.empty();
 
         for (int i = 0; i < count; i++) {
             LayerRenderStateAccessor layer = (LayerRenderStateAccessor) (Object) layers[i];
             if (layer.dbh$getSpecialModelType() != null) continue;
 
-            List<BakedQuad> quads = layers[i].getQuads();
+            List<BakedQuad> quads = layers[i].prepareQuadList();
             if (quads.isEmpty()) continue;
 
             Flat flat = layer.dbh$getUseLight() ? null : new Flat();
@@ -95,9 +95,9 @@ public final class ItemModelBounds {
         }
 
         if (shape.isEmpty()) {
-            shape = VoxelShapes.cuboid(0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+            shape = Shapes.box(0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
         }
-        return shape.simplify();
+        return shape.optimize();
     }
 
     // Opaque pixels of the texture become solid boxes, which assumes a 16x16 texture, like vanilla items
@@ -106,21 +106,21 @@ public final class ItemModelBounds {
         if (zMax - zMin < 0.001f) { zMin -= 1.0f / 32.0f; zMax += 1.0f / 32.0f; }
 
         if (f.sprite == null) {
-            return VoxelShapes.union(shape, VoxelShapes.cuboid(f.x0, f.y0, zMin, f.x1, f.y1, zMax));
+            return Shapes.or(shape, Shapes.box(f.x0, f.y0, zMin, f.x1, f.y1, zMax));
         }
 
-        int sw = f.sprite.getWidth(), sh = f.sprite.getHeight();
+        int sw = f.sprite.width(), sh = f.sprite.height();
         int res = DisplayHitboxConfig.get().itemTextureResolution;
         final int nx = res == 0 ? sw : res, ny = res == 0 ? sh : res;
         float w = f.x1 - f.x0, h = f.y1 - f.y0;
         for (int py = 0; py < ny; py++) {
             int start = -1;
             for (int px = 0; px <= nx; px++) {
-                boolean solid = px < nx && !f.sprite.isPixelTransparent(0, Math.min(sw - 1, px * sw / nx), Math.min(sh - 1, py * sh / ny));
+                boolean solid = px < nx && !f.sprite.isTransparent(0, Math.min(sw - 1, px * sw / nx), Math.min(sh - 1, py * sh / ny));
                 if (solid && start < 0) {
                     start = px;
                 } else if (!solid && start >= 0) {
-                    shape = VoxelShapes.union(shape, VoxelShapes.cuboid(
+                    shape = Shapes.or(shape, Shapes.box(
                             f.x0 + w * start / nx, f.y1 - h * (py + 1) / ny, zMin,
                             f.x0 + w * px / nx, f.y1 - h * py / ny, zMax));
                     start = -1;
@@ -136,7 +136,7 @@ public final class ItemModelBounds {
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
 
             for (int j = 0; j < 4; j++) {
-                org.joml.Vector3fc pos = quad.getPosition(j);
+                org.joml.Vector3fc pos = quad.position(j);
                 float x = pos.x(), y = pos.y(), z = pos.z();
                 minX = Math.min(minX, x); maxX = Math.max(maxX, x);
                 minY = Math.min(minY, y); maxY = Math.max(maxY, y);
@@ -147,8 +147,8 @@ public final class ItemModelBounds {
                 flat.zMin = Math.min(flat.zMin, minZ);
                 flat.zMax = Math.max(flat.zMax, maxZ);
                 if (Float.isNaN(flat.x0)) { flat.x0 = minX; flat.y0 = minY; flat.x1 = maxX; flat.y1 = maxY; }
-                if (quad.face() == Direction.SOUTH) {
-                    flat.sprite = quad.sprite().getContents();
+                if (quad.direction() == Direction.SOUTH) {
+                    flat.sprite = quad.materialInfo().sprite().contents();
                 }
                 continue;
             }
@@ -157,18 +157,18 @@ public final class ItemModelBounds {
             if (maxY - minY < 0.001f) { minY -= 0.005f; maxY += 0.005f; }
             if (maxZ - minZ < 0.001f) { minZ -= 0.005f; maxZ += 0.005f; }
 
-            shape = VoxelShapes.union(shape, VoxelShapes.cuboid(minX, minY, minZ, maxX, maxY, maxZ));
+            shape = Shapes.or(shape, Shapes.box(minX, minY, minZ, maxX, maxY, maxZ));
         }
         return shape;
     }
 
-    public static Matrix4f getInternalTransform(World world, ItemStack stack, int mode) {
+    public static Matrix4f getInternalTransform(Level world, ItemStack stack, int mode) {
         ItemDisplayContext tm = modeOf(mode);
-        ItemRenderState state = stateFor(world, stack, tm);
+        ItemStackRenderState state = stateFor(world, stack, tm);
 
         Matrix4f m = new Matrix4f().rotateY((float) Math.PI);
-        Transformation tf = transformOf(state);
-        if (tf != Transformation.IDENTITY) {
+        ItemTransform tf = transformOf(state);
+        if (tf != ItemTransform.NO_TRANSFORM) {
             boolean left = mode == 1 || mode == 3;
             float ry = tf.rotation().y(), rz = tf.rotation().z();
             if (left) { ry = -ry; rz = -rz; }
@@ -181,18 +181,18 @@ public final class ItemModelBounds {
         return m;
     }
 
-    public static void applyInternalTransform(MatrixStack matrices, World world, ItemStack stack, int mode) {
+    public static void applyInternalTransform(PoseStack matrices, Level world, ItemStack stack, int mode) {
         ItemDisplayContext tm = modeOf(mode);
-        ItemRenderState state = stateFor(world, stack, tm);
+        ItemStackRenderState state = stateFor(world, stack, tm);
 
-        matrices.multiply(net.minecraft.util.math.RotationAxis.POSITIVE_Y.rotation((float) Math.PI));
-        Transformation tf = transformOf(state);
-        if (tf != Transformation.IDENTITY) {
+        matrices.mulPose(com.mojang.math.Axis.YP.rotation((float) Math.PI));
+        ItemTransform tf = transformOf(state);
+        if (tf != ItemTransform.NO_TRANSFORM) {
             boolean left = mode == 1 || mode == 3;
             float ry = tf.rotation().y(), rz = tf.rotation().z();
             if (left) { ry = -ry; rz = -rz; }
             matrices.translate((left ? -1 : 1) * tf.translation().x(), tf.translation().y(), tf.translation().z());
-            matrices.multiply(new Quaternionf().rotationXYZ(
+            matrices.mulPose(new Quaternionf().rotationXYZ(
                     tf.rotation().x() * DisplayHitboxes.DEG,
                     ry * DisplayHitboxes.DEG,
                     rz * DisplayHitboxes.DEG

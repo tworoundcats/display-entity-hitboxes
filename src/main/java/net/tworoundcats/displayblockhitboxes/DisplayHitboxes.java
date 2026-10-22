@@ -2,16 +2,20 @@ package net.tworoundcats.displayblockhitboxes;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.block.BlockState;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.decoration.DisplayEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
-import net.minecraft.world.EmptyBlockView;
+import net.minecraft.util.LightCoordsUtil;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Display;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.tworoundcats.displayblockhitboxes.mixin.BlockDisplayEntityInvoker;
 import net.tworoundcats.displayblockhitboxes.mixin.DisplayEntityAccessor;
 import net.tworoundcats.displayblockhitboxes.mixin.ItemDisplayEntityAccessor;
@@ -25,10 +29,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import net.minecraft.client.render.LightmapTextureManager;
-import net.minecraft.world.LightType;
-import net.minecraft.world.World;
-import net.minecraft.util.math.MathHelper;
 
 public final class DisplayHitboxes {
     private static final boolean CLIENT = FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT;
@@ -43,15 +43,15 @@ public final class DisplayHitboxes {
 
     public static boolean isTargetable(Entity e) {
         DisplayHitboxConfig c = DisplayHitboxConfig.get();
-        if (e instanceof DisplayEntity.BlockDisplayEntity) return c.blockDisplayHitboxes;
-        if (e instanceof DisplayEntity.ItemDisplayEntity) return c.itemDisplayHitboxes;
+        if (e instanceof Display.BlockDisplay) return c.blockDisplayHitboxes;
+        if (e instanceof Display.ItemDisplay) return c.itemDisplayHitboxes;
         return false;
     }
 
-    public static boolean isTargetableType(net.minecraft.entity.EntityType<?> type) {
+    public static boolean isTargetableType(net.minecraft.world.entity.EntityType<?> type) {
         DisplayHitboxConfig c = DisplayHitboxConfig.get();
-        if (type == net.minecraft.entity.EntityType.BLOCK_DISPLAY) return c.blockDisplayHitboxes;
-        if (type == net.minecraft.entity.EntityType.ITEM_DISPLAY) return c.itemDisplayHitboxes;
+        if (type == net.minecraft.world.entity.EntityType.BLOCK_DISPLAY) return c.blockDisplayHitboxes;
+        if (type == net.minecraft.world.entity.EntityType.ITEM_DISPLAY) return c.itemDisplayHitboxes;
         return false;
     }
 
@@ -59,32 +59,32 @@ public final class DisplayHitboxes {
         final Matrix4f shapeTransform;
 
         if (!isTargetable(e)) return false;
-        return !e.getCommandTags().contains("deh_no_collision");
+        return !e.entityTags().contains("deh_no_collision");
     }
-    private static final java.util.Map<World, java.util.Set<DisplayEntity>> REGISTRY =
+    private static final java.util.Map<Level, java.util.Set<Display>> REGISTRY =
             java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
-    public static void track(Entity e, World w) {
-        if (e instanceof DisplayEntity d) {
+    public static void track(Entity e, Level w) {
+        if (e instanceof Display d) {
             REGISTRY.computeIfAbsent(w, k -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(d);
         }
     }
 
-    public static void untrack(Entity e, World w) {
-        if (e instanceof DisplayEntity d) {
-            java.util.Set<DisplayEntity> set = REGISTRY.get(w);
+    public static void untrack(Entity e, Level w) {
+        if (e instanceof Display d) {
+            java.util.Set<Display> set = REGISTRY.get(w);
             if (set != null) set.remove(d);
         }
     }
 
-    public static java.util.Collection<DisplayEntity> displays(World w) {
-        java.util.Set<DisplayEntity> set = REGISTRY.get(w);
+    public static java.util.Collection<Display> displays(Level w) {
+        java.util.Set<Display> set = REGISTRY.get(w);
         return set == null ? List.of() : set;
     }
 
-    public static boolean mayIntersect(DisplayEntity d, Box q) {
-        Vector3f t = d.getDataTracker().get(DisplayEntityAccessor.getTranslation());
-        Vector3f s = d.getDataTracker().get(DisplayEntityAccessor.getScale());
+    public static boolean mayIntersect(Display d, AABB q) {
+        Vector3f t = new Vector3f(d.getEntityData().get(DisplayEntityAccessor.getTranslation()));
+        Vector3f s = new Vector3f(d.getEntityData().get(DisplayEntityAccessor.getScale()));
         double r = t.length() + Math.max(Math.abs(s.x()), Math.max(Math.abs(s.y()), Math.abs(s.z()))) * 2.5 + 1.0;
 
         double dx = Math.max(0.0, Math.abs(d.getX() - (q.minX + q.maxX) / 2) - (q.maxX - q.minX) / 2);
@@ -92,7 +92,7 @@ public final class DisplayHitboxes {
         double dz = Math.max(0.0, Math.abs(d.getZ() - (q.minZ + q.maxZ) / 2) - (q.maxZ - q.minZ) / 2);
         if (dx * dx + dy * dy + dz * dz > r * r) return false;
 
-        Box b = entryFor(d).bounds;
+        AABB b = entryFor(d).bounds;
         if (b == null) return false;
         double x = d.getX(), y = d.getY(), z = d.getZ();
         return b.minX + x < q.maxX && b.maxX + x > q.minX
@@ -100,58 +100,58 @@ public final class DisplayHitboxes {
                 && b.minZ + z < q.maxZ && b.maxZ + z > q.minZ;
     }
 
-    public static void addShapes(com.google.common.collect.ImmutableList.Builder<VoxelShape> builder, DisplayEntity display, Box box) {
+    public static void addShapes(com.google.common.collect.ImmutableList.Builder<VoxelShape> builder, Display display, AABB box) {
         double dx = display.getX(), dy = display.getY(), dz = display.getZ();
-        Box rel = box.offset(-dx, -dy, -dz);
-        for (Box b : getCollisionBoxes(display)) {
-            if (b.intersects(rel)) builder.add(VoxelShapes.cuboid(b.offset(dx, dy, dz)));
+        AABB rel = box.move(-dx, -dy, -dz);
+        for (AABB b : getCollisionBoxes(display)) {
+            if (b.intersects(rel)) builder.add(Shapes.create(b.move(dx, dy, dz)));
         }
     }
 
-    public static int sampleLight(DisplayEntity display) {
-        World world = display.getEntityWorld();
-        boolean isBlock = display instanceof DisplayEntity.BlockDisplayEntity;
+    public static int sampleLight(Display display) {
+        Level world = display.level();
+        boolean isBlock = display instanceof Display.BlockDisplay;
         Vector3f c = isBlock ? new Vector3f(0.5f, 0.5f, 0.5f) : new Vector3f(0f, 0f, 0f);
         getBaseTransform(display).transformPosition(c);
 
-        int cx = MathHelper.floor(display.getX() + c.x());
-        int cy = MathHelper.floor(display.getY() + c.y());
-        int cz = MathHelper.floor(display.getZ() + c.z());
+        int cx = Mth.floor(display.getX() + c.x());
+        int cy = Mth.floor(display.getY() + c.y());
+        int cz = Mth.floor(display.getZ() + c.z());
 
         int block = 0, sky = 0;
-        BlockPos.Mutable p = new BlockPos.Mutable();
+        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
                 for (int dz = -1; dz <= 1; dz++) {
                     p.set(cx + dx, cy + dy, cz + dz);
-                    block = Math.max(block, world.getLightLevel(LightType.BLOCK, p));
-                    sky = Math.max(sky, world.getLightLevel(LightType.SKY, p));
+                    block = Math.max(block, world.getBrightness(LightLayer.BLOCK, p));
+                    sky = Math.max(sky, world.getBrightness(LightLayer.SKY, p));
                 }
             }
         }
-        return LightmapTextureManager.pack(block, sky);
+        return LightCoordsUtil.pack(block, sky);
     }
 
     public static VoxelShape removeModelOffset(BlockState state, VoxelShape shape) {
-        Vec3d o = state.getModelOffset(BlockPos.ORIGIN);
+        Vec3 o = state.getOffset(BlockPos.ZERO);
         if (o.x == 0.0 && o.y == 0.0 && o.z == 0.0) return shape;
-        return shape.offset(-o.x, -o.y, -o.z);
+        return shape.move(-o.x, -o.y, -o.z);
     }
 
-    public static Matrix4f getBaseTransform(DisplayEntity display) {
-        Vector3f t = display.getDataTracker().get(DisplayEntityAccessor.getTranslation());
-        Vector3f s = display.getDataTracker().get(DisplayEntityAccessor.getScale());
-        Quaternionf lr = display.getDataTracker().get(DisplayEntityAccessor.getLeftRotation());
-        Quaternionf rr = display.getDataTracker().get(DisplayEntityAccessor.getRightRotation());
+    public static Matrix4f getBaseTransform(Display display) {
+        Vector3f t = new Vector3f(display.getEntityData().get(DisplayEntityAccessor.getTranslation()));
+        Vector3f s = new Vector3f(display.getEntityData().get(DisplayEntityAccessor.getScale()));
+        Quaternionf lr = new Quaternionf(display.getEntityData().get(DisplayEntityAccessor.getLeftRotation()));
+        Quaternionf rr = new Quaternionf(display.getEntityData().get(DisplayEntityAccessor.getRightRotation()));
 
-        Quaternionf orient = new Quaternionf().rotationYXZ(-DEG * display.getYaw(), DEG * display.getPitch(), 0.0f);
+        Quaternionf orient = new Quaternionf().rotationYXZ(-DEG * display.getYRot(), DEG * display.getXRot(), 0.0f);
         return new Matrix4f().rotate(orient).translate(t).rotate(lr).scale(s).rotate(rr);
     }
 
-    public static ShapeData getAccurateShape(DisplayEntity display, boolean forPicking) {
+    public static ShapeData getAccurateShape(Display display, boolean forPicking) {
         Matrix4f m = getBaseTransform(display);
 
-        if (display instanceof DisplayEntity.BlockDisplayEntity blockDisplay) {
+        if (display instanceof Display.BlockDisplay blockDisplay) {
             BlockState state = ((BlockDisplayEntityInvoker) blockDisplay).invokeGetBlockState();
             if (state == null || state.isAir()) return null;
 
@@ -159,52 +159,52 @@ public final class DisplayHitboxes {
             if (CLIENT) {
                 shape = BlockModelBounds.getShape(state);
                 if (!DisplayHitboxConfig.get().accurateHitboxes && !shape.isEmpty()) {
-                    shape = VoxelShapes.cuboid(shape.getBoundingBox());
+                    shape = Shapes.create(shape.bounds());
                 }
             } else {
                 shape = forPicking
-                        ? state.getOutlineShape(EmptyBlockView.INSTANCE, BlockPos.ORIGIN)
-                        : state.getCollisionShape(EmptyBlockView.INSTANCE, BlockPos.ORIGIN);
+                        ? state.getShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO)
+                        : state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
                 if (shape.isEmpty() && forPicking) {
-                    shape = state.getCollisionShape(EmptyBlockView.INSTANCE, BlockPos.ORIGIN);
+                    shape = state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
                 }
                 shape = removeModelOffset(state, shape);
             }
 
             if (shape.isEmpty()) {
-                return forPicking ? new ShapeData(VoxelShapes.cuboid(0, 0, 0, 1, 1, 1), m) : null;
+                return forPicking ? new ShapeData(Shapes.box(0, 0, 0, 1, 1, 1), m) : null;
             }
 
             return new ShapeData(shape, m);
 
-        } else if (display instanceof DisplayEntity.ItemDisplayEntity itemDisplay) {
+        } else if (display instanceof Display.ItemDisplay itemDisplay) {
             ItemStack stack = null;
             try {
-                net.minecraft.inventory.StackReference ref = itemDisplay.getStackReference(0);
+                net.minecraft.world.entity.SlotAccess ref = itemDisplay.getSlot(0);
                 if (ref != null) stack = ref.get();
             } catch (Exception ignored) {
             }
 
             if (stack == null || stack.isEmpty()) {
-                return new ShapeData(VoxelShapes.cuboid(-0.25, -0.25, -0.25, 0.25, 0.25, 0.25), m);
+                return new ShapeData(Shapes.box(-0.25, -0.25, -0.25, 0.25, 0.25, 0.25), m);
             }
 
             if (CLIENT) {
-                int mode = itemDisplay.getDataTracker().get(ItemDisplayEntityAccessor.getItemDisplay());
-                VoxelShape shape = ItemModelBounds.getShape(display.getEntityWorld(), stack);
-                Matrix4f internal = ItemModelBounds.getInternalTransform(display.getEntityWorld(), stack, mode);
+                int mode = itemDisplay.getEntityData().get(ItemDisplayEntityAccessor.getItemDisplay());
+                VoxelShape shape = ItemModelBounds.getShape(display.level(), stack);
+                Matrix4f internal = ItemModelBounds.getInternalTransform(display.level(), stack, mode);
                 m.mul(internal);
                 return new ShapeData(shape, m);
             } else {
-                return new ShapeData(VoxelShapes.cuboid(-0.5, -0.5, -1.0 / 32.0, 0.5, 0.5, 1.0 / 32.0), m);
+                return new ShapeData(Shapes.box(-0.5, -0.5, -1.0 / 32.0, 0.5, 0.5, 1.0 / 32.0), m);
             }
         }
         return null;
     }
 
-    private static ItemStack stackOf(DisplayEntity.ItemDisplayEntity itemDisplay) {
+    private static ItemStack stackOf(Display.ItemDisplay itemDisplay) {
         try {
-            net.minecraft.inventory.StackReference ref = itemDisplay.getStackReference(0);
+            net.minecraft.world.entity.SlotAccess ref = itemDisplay.getSlot(0);
             if (ref != null) return ref.get();
         } catch (Exception ignored) {
         }
@@ -213,7 +213,7 @@ public final class DisplayHitboxes {
 
     private static boolean sameContent(Object a, Object b) {
         if (a instanceof ItemStack x && b instanceof ItemStack y) {
-            return ItemStack.areItemsAndComponentsEqual(x, y);
+            return ItemStack.isSameItemSameComponents(x, y);
         }
         return Objects.equals(a, b);
     }
@@ -223,15 +223,15 @@ public final class DisplayHitboxes {
         final Object content;
         final int mode;
         final boolean accurate;
-        final List<Box> boxes;
-        final Box bounds;
+        final List<AABB> boxes;
+        final AABB bounds;
         final Matrix4f shapeTransform;
         int checkedAge;
         volatile boolean pickReady;
         volatile ShapeData pick;
         volatile Matrix4f pickInverse;
 
-        CollisionEntry(Matrix4f base, Object content, int mode, boolean accurate, List<Box> boxes, Box bounds, int age, Matrix4f shapeTransform) {
+        CollisionEntry(Matrix4f base, Object content, int mode, boolean accurate, List<AABB> boxes, AABB bounds, int age, Matrix4f shapeTransform) {
             this.base = base;
             this.content = content;
             this.mode = mode;
@@ -242,7 +242,7 @@ public final class DisplayHitboxes {
             this.shapeTransform = shapeTransform;
         }
 
-        ShapeData pickData(DisplayEntity d) {
+        ShapeData pickData(Display d) {
             if (!pickReady) {
                 ShapeData p = getAccurateShape(d, true);
                 Matrix4f inv = null;
@@ -257,47 +257,47 @@ public final class DisplayHitboxes {
         }
     }
 
-    private static final Cache<DisplayEntity, CollisionEntry> COLLISION_CACHE =
+    private static final Cache<Display, CollisionEntry> COLLISION_CACHE =
             CacheBuilder.newBuilder().weakKeys().build();
 
-    private static CollisionEntry entryFor(DisplayEntity display) {
+    private static CollisionEntry entryFor(Display display) {
         boolean accurate = DisplayHitboxConfig.get().accurateHitboxes;
         CollisionEntry cached = COLLISION_CACHE.getIfPresent(display);
-        if (cached != null && cached.accurate == accurate && cached.checkedAge == display.age) return cached;
+        if (cached != null && cached.accurate == accurate && cached.checkedAge == display.tickCount) return cached;
 
         Matrix4f base = getBaseTransform(display);
         Object content = null;
         int mode = 0;
-        if (display instanceof DisplayEntity.BlockDisplayEntity blockDisplay) {
+        if (display instanceof Display.BlockDisplay blockDisplay) {
             content = ((BlockDisplayEntityInvoker) blockDisplay).invokeGetBlockState();
-        } else if (display instanceof DisplayEntity.ItemDisplayEntity itemDisplay) {
+        } else if (display instanceof Display.ItemDisplay itemDisplay) {
             content = stackOf(itemDisplay);
-            mode = itemDisplay.getDataTracker().get(ItemDisplayEntityAccessor.getItemDisplay());
+            mode = itemDisplay.getEntityData().get(ItemDisplayEntityAccessor.getItemDisplay());
         }
 
         if (cached != null && cached.accurate == accurate && cached.mode == mode
                 && cached.base.equals(base) && sameContent(cached.content, content)) {
-            cached.checkedAge = display.age;
+            cached.checkedAge = display.tickCount;
             return cached;
         }
 
-        List<Box> boxes = List.of();
-        Box bounds = null;
+        List<AABB> boxes = List.of();
+        AABB bounds = null;
         Matrix4f shapeTransform = null;
         ShapeData data = getAccurateShape(display, false);
         if (data != null && !data.shape().isEmpty()) {
             shapeTransform = new Matrix4f(data.transform());
-            List<Box> out = new ArrayList<>();
+            List<AABB> out = new ArrayList<>();
             if (accurate) {
-                ObbBoxes.decompose(data.shape().getBoundingBoxes(), data.transform(), out);
+                ObbBoxes.decompose(data.shape().toAabbs(), data.transform(), out);
             } else {
-                Box w = computeBox(display, false);
-                if (w != null) out.add(w.offset(-display.getX(), -display.getY(), -display.getZ()));
+                AABB w = computeBox(display, false);
+                if (w != null) out.add(w.move(-display.getX(), -display.getY(), -display.getZ()));
             }
             boxes = List.copyOf(out);
             double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
             double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
-            for (Box b : boxes) {
+            for (AABB b : boxes) {
                 minX = Math.min(minX, b.minX);
                 minY = Math.min(minY, b.minY);
                 minZ = Math.min(minZ, b.minZ);
@@ -305,30 +305,30 @@ public final class DisplayHitboxes {
                 maxY = Math.max(maxY, b.maxY);
                 maxZ = Math.max(maxZ, b.maxZ);
             }
-            if (!boxes.isEmpty()) bounds = new Box(minX, minY, minZ, maxX, maxY, maxZ);
+            if (!boxes.isEmpty()) bounds = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
         }
 
         Object stored = content instanceof ItemStack s ? s.copy() : content;
-        CollisionEntry entry = new CollisionEntry(base, stored, mode, accurate, boxes, bounds, display.age, shapeTransform);
+        CollisionEntry entry = new CollisionEntry(base, stored, mode, accurate, boxes, bounds, display.tickCount, shapeTransform);
         COLLISION_CACHE.put(display, entry);
         return entry;
     }
 
     public static final class Motion {
         long tick = Long.MIN_VALUE;
-        Vec3d pos = Vec3d.ZERO, prevPos = Vec3d.ZERO;
+        Vec3 pos = Vec3.ZERO, prevPos = Vec3.ZERO;
         Matrix4f shape, prevInverse;
         boolean moving;
     }
 
-    private static final Cache<DisplayEntity, Motion> MOTION = CacheBuilder.newBuilder().weakKeys().build();
+    private static final Cache<Display, Motion> MOTION = CacheBuilder.newBuilder().weakKeys().build();
 
     public static void clearCache() {
         COLLISION_CACHE.invalidateAll();
         MOTION.invalidateAll();
     }
 
-    public static Motion motion(DisplayEntity d, long tick) {
+    public static Motion motion(Display d, long tick) {
         Motion m = MOTION.getIfPresent(d);
         if (m == null) {
             m = new Motion();
@@ -338,36 +338,36 @@ public final class DisplayHitboxes {
 
         Matrix4f cur = entryFor(d).shapeTransform;
         Matrix4f prevShape = m.shape;
-        Vec3d prevPos = m.pos;
+        Vec3 prevPos = m.pos;
         boolean consecutive = m.tick == tick - 1 && prevShape != null && cur != null;
 
         m.prevInverse = null;
         m.moving = false;
         if (consecutive && Math.abs(prevShape.determinant()) > 1.0e-6) {
-            Vec3d pos = d.getEntityPos();
+            Vec3 pos = d.position();
             m.moving = !(prevPos.equals(pos) && prevShape.equals(cur));
             if (m.moving) m.prevInverse = new Matrix4f(prevShape).invert();
         }
         m.prevPos = prevPos;
         m.shape = cur;
-        m.pos = d.getEntityPos();
+        m.pos = d.position();
         m.tick = tick;
         return m;
     }
 
-    public static Vec3d surfaceVelocity(Motion m, Vec3d q) {
-        if (!m.moving || m.prevInverse == null || m.shape == null) return Vec3d.ZERO;
+    public static Vec3 surfaceVelocity(Motion m, Vec3 q) {
+        if (!m.moving || m.prevInverse == null || m.shape == null) return Vec3.ZERO;
         Vector3f p = new Vector3f((float) (q.x - m.prevPos.x), (float) (q.y - m.prevPos.y), (float) (q.z - m.prevPos.z));
         m.prevInverse.transformPosition(p);
         m.shape.transformPosition(p);
-        return new Vec3d(p.x + m.pos.x - q.x, p.y + m.pos.y - q.y, p.z + m.pos.z - q.z);
+        return new Vec3(p.x + m.pos.x - q.x, p.y + m.pos.y - q.y, p.z + m.pos.z - q.z);
     }
 
-    public static List<Box> getCollisionBoxes(DisplayEntity display) {
+    public static List<AABB> getCollisionBoxes(Display display) {
         return entryFor(display).boxes;
     }
 
-    public static Box transformBox(Box local, Matrix4f m, double dx, double dy, double dz) {
+    public static AABB transformBox(AABB local, Matrix4f m, double dx, double dy, double dz) {
         double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
         double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
         for (int i = 0; i < 8; i++) {
@@ -384,32 +384,32 @@ public final class DisplayHitboxes {
             minZ = Math.min(minZ, v.z());
             maxZ = Math.max(maxZ, v.z());
         }
-        return new Box(dx + minX, dy + minY, dz + minZ, dx + maxX, dy + maxY, dz + maxZ);
+        return new AABB(dx + minX, dy + minY, dz + minZ, dx + maxX, dy + maxY, dz + maxZ);
     }
 
-    public static Box computeBox(DisplayEntity display, boolean forPicking) {
-        if (display.getEntityWorld() == null) return null;
+    public static AABB computeBox(Display display, boolean forPicking) {
+        if (display.level() == null) return null;
 
         if (!forPicking && DisplayHitboxConfig.get().accurateHitboxes) {
-            Box b = entryFor(display).bounds;
+            AABB b = entryFor(display).bounds;
             if (b == null) return null;
-            return b.offset(display.getX(), display.getY(), display.getZ());
+            return b.move(display.getX(), display.getY(), display.getZ());
         }
 
         ShapeData data = getAccurateShape(display, forPicking);
         if (data == null || data.shape().isEmpty()) return null;
 
-        Box local = data.shape().getBoundingBox();
-        Box transformed = transformBox(local, data.transform(), display.getX(), display.getY(), display.getZ());
+        AABB local = data.shape().bounds();
+        AABB transformed = transformBox(local, data.transform(), display.getX(), display.getY(), display.getZ());
 
         double px = Math.max(0, (MIN_THICKNESS - (transformed.maxX - transformed.minX)) / 2);
         double py = Math.max(0, (MIN_THICKNESS - (transformed.maxY - transformed.minY)) / 2);
         double pz = Math.max(0, (MIN_THICKNESS - (transformed.maxZ - transformed.minZ)) / 2);
 
-        return transformed.expand(px, py, pz);
+        return transformed.inflate(px, py, pz);
     }
 
-    public static Optional<Vec3d> raycast(DisplayEntity display, Vec3d eye, Vec3d end) {
+    public static Optional<Vec3> raycast(Display display, Vec3 eye, Vec3 end) {
         boolean accurate = DisplayHitboxConfig.get().accurateHitboxes;
 
         if (accurate) {
@@ -425,15 +425,15 @@ public final class DisplayHitboxes {
                 Vector3f localEnd = new Vector3f((float) (end.x - dx), (float) (end.y - dy), (float) (end.z - dz));
                 inv.transformPosition(localEnd);
 
-                Vec3d le = new Vec3d(localEye.x, localEye.y, localEye.z);
-                Vec3d ln = new Vec3d(localEnd.x, localEnd.y, localEnd.z);
+                Vec3 le = new Vec3(localEye.x, localEye.y, localEye.z);
+                Vec3 ln = new Vec3(localEnd.x, localEnd.y, localEnd.z);
 
-                Vec3d bestHit = null;
+                Vec3 bestHit = null;
                 double bestDist = Double.MAX_VALUE;
-                for (Box box : data.shape().getBoundingBoxes()) {
-                    Optional<Vec3d> hit = box.raycast(le, ln);
+                for (AABB box : data.shape().toAabbs()) {
+                    Optional<Vec3> hit = box.clip(le, ln);
                     if (hit.isPresent()) {
-                        double dist = hit.get().squaredDistanceTo(le);
+                        double dist = hit.get().distanceToSqr(le);
                         if (dist < bestDist) {
                             bestDist = dist;
                             bestHit = hit.get();
@@ -444,14 +444,14 @@ public final class DisplayHitboxes {
                 if (bestHit != null) {
                     Vector3f hitPos = new Vector3f((float) bestHit.x, (float) bestHit.y, (float) bestHit.z);
                     m.transformPosition(hitPos);
-                    return Optional.of(new Vec3d(hitPos.x() + dx, hitPos.y() + dy, hitPos.z() + dz));
+                    return Optional.of(new Vec3(hitPos.x() + dx, hitPos.y() + dy, hitPos.z() + dz));
                 }
                 return Optional.empty();
             }
         }
 
-        Box box = computeBox(display, true);
+        AABB box = computeBox(display, true);
         if (box == null) return Optional.empty();
-        return box.contains(eye) ? Optional.of(eye) : box.raycast(eye, end);
+        return box.contains(eye) ? Optional.of(eye) : box.clip(eye, end);
     }
 }

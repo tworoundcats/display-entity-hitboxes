@@ -1,19 +1,19 @@
 package net.tworoundcats.displayblockhitboxes.mixin;
 
-import net.minecraft.client.render.item.ItemRenderState;
-import net.minecraft.client.render.item.model.special.SpecialModelRenderer;
-import net.minecraft.client.render.model.json.Transformation;
+import net.minecraft.client.resources.model.cuboid.ItemTransform;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.client.renderer.special.SpecialModelRenderer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
-@Mixin(ItemRenderState.LayerRenderState.class)
+@Mixin(ItemStackRenderState.LayerRenderState.class)
 public interface LayerRenderStateAccessor {
-    @Accessor("transform")
-    Transformation dbh$getTransform();
+    @Accessor("itemTransform")
+    ItemTransform dbh$getTransform();
 
-    @Accessor("useLight")
+    @Accessor("usesBlockLight")
     boolean dbh$getUseLight();
 
-    @Accessor("specialModelType")
+    @Accessor("specialRenderer")
     SpecialModelRenderer<Object> dbh$getSpecialModelType();
 }

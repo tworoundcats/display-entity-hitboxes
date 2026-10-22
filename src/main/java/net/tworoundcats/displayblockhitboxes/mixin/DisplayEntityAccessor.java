@@ -1,23 +1,23 @@
 package net.tworoundcats.displayblockhitboxes.mixin;
 
-import net.minecraft.entity.data.TrackedData;
-import net.minecraft.entity.decoration.DisplayEntity;
-import org.joml.Quaternionf;
-import org.joml.Vector3f;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.world.entity.Display;
+import org.joml.Quaternionfc;
+import org.joml.Vector3fc;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
-@Mixin(DisplayEntity.class)
+@Mixin(Display.class)
 public interface DisplayEntityAccessor {
-    @Accessor("TRANSLATION")
-    static TrackedData<Vector3f> getTranslation() { throw new AssertionError(); }
+    @Accessor("DATA_TRANSLATION_ID")
+    static EntityDataAccessor<Vector3fc> getTranslation() { throw new AssertionError(); }
 
-    @Accessor("SCALE")
-    static TrackedData<Vector3f> getScale() { throw new AssertionError(); }
+    @Accessor("DATA_SCALE_ID")
+    static EntityDataAccessor<Vector3fc> getScale() { throw new AssertionError(); }
 
-    @Accessor("LEFT_ROTATION")
-    static TrackedData<Quaternionf> getLeftRotation() { throw new AssertionError(); }
+    @Accessor("DATA_LEFT_ROTATION_ID")
+    static EntityDataAccessor<Quaternionfc> getLeftRotation() { throw new AssertionError(); }
 
-    @Accessor("RIGHT_ROTATION")
-    static TrackedData<Quaternionf> getRightRotation() { throw new AssertionError(); }
+    @Accessor("DATA_RIGHT_ROTATION_ID")
+    static EntityDataAccessor<Quaternionfc> getRightRotation() { throw new AssertionError(); }
 }

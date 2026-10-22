@@ -1,20 +1,20 @@
 package net.tworoundcats.displayblockhitboxes;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
-public record CollisionSyncPayload(int entityId, boolean noCollision) implements CustomPayload {
-    public static final CustomPayload.Id<CollisionSyncPayload> ID = new CustomPayload.Id<>(DisplayBlockHitboxes.SYNC_COLLISION);
+public record CollisionSyncPayload(int entityId, boolean noCollision) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<CollisionSyncPayload> ID = new CustomPacketPayload.Type<>(DisplayBlockHitboxes.SYNC_COLLISION);
 
-    public static final PacketCodec<RegistryByteBuf, CollisionSyncPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.VAR_INT, CollisionSyncPayload::entityId,
-            PacketCodecs.BOOLEAN, CollisionSyncPayload::noCollision,
+    public static final StreamCodec<RegistryFriendlyByteBuf, CollisionSyncPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, CollisionSyncPayload::entityId,
+            ByteBufCodecs.BOOL, CollisionSyncPayload::noCollision,
             CollisionSyncPayload::new);
 
     @Override
-    public CustomPayload.Id<? extends CustomPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

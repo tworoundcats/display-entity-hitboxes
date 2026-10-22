@@ -1,16 +1,16 @@
 package net.tworoundcats.displayblockhitboxes.mixin;
 
-import net.minecraft.entity.data.TrackedData;
-import net.minecraft.entity.decoration.DisplayEntity;
-import net.minecraft.item.ItemStack;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.world.entity.Display;
+import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
-@Mixin(DisplayEntity.ItemDisplayEntity.class)
+@Mixin(Display.ItemDisplay.class)
 public interface ItemDisplayEntityAccessor {
-    @Accessor("ITEM")
-    static TrackedData<ItemStack> getItem() { throw new AssertionError(); }
+    @Accessor("DATA_ITEM_STACK_ID")
+    static EntityDataAccessor<ItemStack> getItem() { throw new AssertionError(); }
 
-    @Accessor("ITEM_DISPLAY")
-    static TrackedData<Byte> getItemDisplay() { throw new AssertionError(); }
+    @Accessor("DATA_ITEM_DISPLAY_ID")
+    static EntityDataAccessor<Byte> getItemDisplay() { throw new AssertionError(); }
 }
