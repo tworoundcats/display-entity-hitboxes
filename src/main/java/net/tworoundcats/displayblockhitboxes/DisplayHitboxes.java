@@ -156,8 +156,11 @@ public final class DisplayHitboxes {
             if (state == null || state.isAir()) return null;
 
             VoxelShape shape;
-            if (CLIENT && DisplayHitboxConfig.get().accurateHitboxes) {
+            if (CLIENT) {
                 shape = BlockModelBounds.getShape(state);
+                if (!DisplayHitboxConfig.get().accurateHitboxes && !shape.isEmpty()) {
+                    shape = VoxelShapes.cuboid(shape.getBoundingBox());
+                }
             } else {
                 shape = forPicking
                         ? state.getOutlineShape(EmptyBlockView.INSTANCE, BlockPos.ORIGIN)
@@ -285,7 +288,12 @@ public final class DisplayHitboxes {
         if (data != null && !data.shape().isEmpty()) {
             shapeTransform = new Matrix4f(data.transform());
             List<Box> out = new ArrayList<>();
-            ObbBoxes.decompose(data.shape().getBoundingBoxes(), data.transform(), out);
+            if (accurate) {
+                ObbBoxes.decompose(data.shape().getBoundingBoxes(), data.transform(), out);
+            } else {
+                Box w = computeBox(display, false);
+                if (w != null) out.add(w.offset(-display.getX(), -display.getY(), -display.getZ()));
+            }
             boxes = List.copyOf(out);
             double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
             double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;

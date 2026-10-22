@@ -132,15 +132,12 @@ public final class ItemModelBounds {
 
     private static VoxelShape addQuads(VoxelShape shape, List<BakedQuad> quads, Flat flat) {
         for (BakedQuad quad : quads) {
-            int[] data = quad.vertexData();
-            int stride = data.length / 4;
             float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
 
             for (int j = 0; j < 4; j++) {
-                float x = Float.intBitsToFloat(data[j * stride]);
-                float y = Float.intBitsToFloat(data[j * stride + 1]);
-                float z = Float.intBitsToFloat(data[j * stride + 2]);
+                org.joml.Vector3fc pos = quad.getPosition(j);
+                float x = pos.x(), y = pos.y(), z = pos.z();
                 minX = Math.min(minX, x); maxX = Math.max(maxX, x);
                 minY = Math.min(minY, y); maxY = Math.max(maxY, y);
                 minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);

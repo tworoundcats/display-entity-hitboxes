@@ -62,16 +62,15 @@ public final class BlockModelBounds {
 
     private static VoxelShape addQuads(VoxelShape shape, boolean[] grid, List<BakedQuad> quads) {
         for (BakedQuad quad : quads) {
-            int[] data = quad.vertexData();
-            int stride = data.length / 4;
             float[] x = new float[4], y = new float[4], z = new float[4];
             float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
 
             for (int j = 0; j < 4; j++) {
-                x[j] = Float.intBitsToFloat(data[j * stride]);
-                y[j] = Float.intBitsToFloat(data[j * stride + 1]);
-                z[j] = Float.intBitsToFloat(data[j * stride + 2]);
+                org.joml.Vector3fc pos = quad.getPosition(j);
+                x[j] = pos.x();
+                y[j] = pos.y();
+                z[j] = pos.z();
                 minX = Math.min(minX, x[j]); maxX = Math.max(maxX, x[j]);
                 minY = Math.min(minY, y[j]); maxY = Math.max(maxY, y[j]);
                 minZ = Math.min(minZ, z[j]); maxZ = Math.max(maxZ, z[j]);
@@ -114,15 +113,12 @@ public final class BlockModelBounds {
         return (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    private static void rasterize(boolean[] g, BakedQuad quad, float[] x, float[] y, float[] z) {
-        int[] data = quad.vertexData();
-        int stride = data.length / 4;
-        float[] tu = new float[4], tv = new float[4];
-        for (int j = 0; j < 4; j++) {
-            tu[j] = Float.intBitsToFloat(data[j * stride + 4]);
-            tv[j] = Float.intBitsToFloat(data[j * stride + 5]);
-        }
+    private static boolean inRange(float v, float lo, float hi) {
+        float e = (hi - lo) * 0.02f + 1.0e-6f;
+        return v >= lo - e && v <= hi + e;
+    }
 
+    private static void rasterize(boolean[] g, BakedQuad quad, float[] x, float[] y, float[] z) {
         Sprite sprite = quad.sprite();
         SpriteContents contents = sprite == null ? null : sprite.getContents();
         float minU = 0, maxU = 0, minV = 0, maxV = 0;
@@ -131,6 +127,35 @@ public final class BlockModelBounds {
             minV = sprite.getMinV(); maxV = sprite.getMaxV();
         }
         boolean alpha = contents != null && maxU > minU && maxV > minV;
+
+        float[] fu = new float[4], fv = new float[4];
+        if (alpha) {
+            float[] a = new float[4], b = new float[4];
+            for (int j = 0; j < 4; j++) {
+                long uv = quad.getTexcoords(j);
+                a[j] = Float.intBitsToFloat((int) uv);
+                b[j] = Float.intBitsToFloat((int) (uv >>> 32));
+            }
+            boolean direct = true, swapped = true, local = true;
+            for (int j = 0; j < 4; j++) {
+                direct &= inRange(a[j], minU, maxU) && inRange(b[j], minV, maxV);
+                swapped &= inRange(b[j], minU, maxU) && inRange(a[j], minV, maxV);
+                local &= inRange(a[j], 0f, 1f) && inRange(b[j], 0f, 1f);
+            }
+            for (int j = 0; j < 4; j++) {
+                if (direct) {
+                    fu[j] = (a[j] - minU) / (maxU - minU);
+                    fv[j] = (b[j] - minV) / (maxV - minV);
+                } else if (swapped) {
+                    fu[j] = (b[j] - minU) / (maxU - minU);
+                    fv[j] = (a[j] - minV) / (maxV - minV);
+                } else if (local) {
+                    fu[j] = a[j];
+                    fv[j] = b[j];
+                }
+            }
+            alpha = direct || swapped || local;
+        }
 
         float lenU = Math.max(dist(x, y, z, 0, 1), dist(x, y, z, 3, 2));
         float lenV = Math.max(dist(x, y, z, 0, 3), dist(x, y, z, 1, 2));
@@ -141,12 +166,11 @@ public final class BlockModelBounds {
             for (int j = 0; j <= nv; j++) {
                 float v = (float) j / nv;
 
-                // skip transparent texture pixels, so only the visible crystal is solid
                 if (alpha) {
-                    float pu = (1 - v) * ((1 - u) * tu[0] + u * tu[1]) + v * ((1 - u) * tu[3] + u * tu[2]);
-                    float pv = (1 - v) * ((1 - u) * tv[0] + u * tv[1]) + v * ((1 - u) * tv[3] + u * tv[2]);
-                    int tx = (int) ((pu - minU) / (maxU - minU) * contents.getWidth());
-                    int ty = (int) ((pv - minV) / (maxV - minV) * contents.getHeight());
+                    float pu = (1 - v) * ((1 - u) * fu[0] + u * fu[1]) + v * ((1 - u) * fu[3] + u * fu[2]);
+                    float pv = (1 - v) * ((1 - u) * fv[0] + u * fv[1]) + v * ((1 - u) * fv[3] + u * fv[2]);
+                    int tx = (int) Math.floor(pu * contents.getWidth());
+                    int ty = (int) Math.floor(pv * contents.getHeight());
                     tx = Math.max(0, Math.min(contents.getWidth() - 1, tx));
                     ty = Math.max(0, Math.min(contents.getHeight() - 1, ty));
                     if (contents.isPixelTransparent(0, tx, ty)) continue;

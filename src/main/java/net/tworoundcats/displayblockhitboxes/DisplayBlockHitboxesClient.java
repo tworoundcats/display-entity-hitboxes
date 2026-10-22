@@ -6,7 +6,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.RenderLayers;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.VertexRendering;
@@ -34,6 +34,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
     private static final Map<Integer, Boolean> PENDING_COLLISION_STATES = new ConcurrentHashMap<>();
 
     private static final int OUTLINE_COLOR = 0x66000000;
+    private static final float LINE_WIDTH = 2.5f;
 
     private static volatile DisplayEntity pickedDisplay;
     private static volatile boolean outlineDrawn;
@@ -100,7 +101,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
 
         VertexConsumerProvider.Immediate consumers = mc.getBufferBuilders().getEntityVertexConsumers();
         MatrixStack matrices = new MatrixStack();
-        Vec3d cam = mc.gameRenderer.getCamera().getPos();
+        Vec3d cam = mc.gameRenderer.getCamera().getCameraPos();
 
         if (hitboxesVisible()) {
             if (slicesDrawn) return;
@@ -155,8 +156,8 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
                     }
                 }
 
-                VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), data.shape(), 0.0, 0.0, 0.0, OUTLINE_COLOR);
-                consumers.draw(RenderLayer.getLines());
+                VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayers.lines()), data.shape(), 0.0, 0.0, 0.0, OUTLINE_COLOR, LINE_WIDTH);
+                consumers.draw(RenderLayers.lines());
                 matrices.pop();
                 return;
             }
@@ -166,8 +167,8 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         if (world == null) world = display.getBoundingBox();
 
         Box box = world.offset(-cam.x, -cam.y, -cam.z);
-        VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, OUTLINE_COLOR);
-        consumers.draw(RenderLayer.getLines());
+        VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayers.lines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, OUTLINE_COLOR, LINE_WIDTH);
+        consumers.draw(RenderLayers.lines());
     }
 
     private static void drawCollisionSlices(DisplayEntity display, MatrixStack matrices, VertexConsumerProvider.Immediate consumers, Vec3d cam) {
@@ -175,20 +176,28 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
         double dy = display.getY() - cam.y;
         double dz = display.getZ() - cam.z;
 
+        // simple mode collides with one box, show exactly that box
+        if (!DisplayHitboxConfig.get().accurateHitboxes) {
+            Box box = display.getBoundingBox().offset(-cam.x, -cam.y, -cam.z);
+            VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayers.lines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, 0xFFFFFFFF, LINE_WIDTH);
+            consumers.draw(RenderLayers.lines());
+            return;
+        }
+
         java.util.List<Box> boxes = DisplayHitboxes.getCollisionBoxes(display);
         if (boxes != null && !boxes.isEmpty()) {
-            VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
+            VertexConsumer buffer = consumers.getBuffer(RenderLayers.lines());
             for (Box local : boxes) {
                 Box box = local.offset(dx, dy, dz);
-                VertexRendering.drawOutline(matrices, buffer, net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, 0xFFFFFFFF);
+                VertexRendering.drawOutline(matrices, buffer, net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, 0xFFFFFFFF, LINE_WIDTH);
             }
         } else {
             Box world = DisplayHitboxes.computeBox(display, true);
             if (world == null) world = display.getBoundingBox();
             Box box = world.offset(-cam.x, -cam.y, -cam.z);
-            VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayer.getLines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, 0xFFFFFFFF);
+            VertexRendering.drawOutline(matrices, consumers.getBuffer(RenderLayers.lines()), net.minecraft.util.shape.VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, 0xFFFFFFFF, LINE_WIDTH);
         }
-        consumers.draw(RenderLayer.getLines());
+        consumers.draw(RenderLayers.lines());
     }
 
     public static void pick(float tickDelta) {
