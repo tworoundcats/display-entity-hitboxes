@@ -14,19 +14,19 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class EntityCanHitMixin {
 
     @Inject(method = "isPickable", at = @At("HEAD"), cancellable = true)
-    private void dbh$canHit(CallbackInfoReturnable<Boolean> cir) {
+    private void dbh$isPickable(CallbackInfoReturnable<Boolean> cir) {
         if (DisplayHitboxes.isTargetable((Entity) (Object) this)) {
             cir.setReturnValue(false);
         }
     }
 
     @Inject(method = "canBeCollidedWith", at = @At("HEAD"), cancellable = true)
-    private void dbh$isCollidable(CallbackInfoReturnable<Boolean> cir) {
+    private void dbh$canBeCollidedWith(CallbackInfoReturnable<Boolean> cir) {
         if (DisplayHitboxes.hasCollision((Entity) (Object) this)) cir.setReturnValue(true);
     }
 
     @Inject(method = "canCollideWith", at = @At("HEAD"))
-    private void dbh$collidesWith(Entity other, CallbackInfoReturnable<Boolean> cir) {
+    private void dbh$canCollideWith(Entity other, CallbackInfoReturnable<Boolean> cir) {
         DisplayHitboxConfig.get();
     }
 
