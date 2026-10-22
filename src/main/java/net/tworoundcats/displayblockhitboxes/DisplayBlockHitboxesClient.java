@@ -19,6 +19,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.tworoundcats.displayblockhitboxes.mixin.DisplayEntityAccessor;
 import net.tworoundcats.displayblockhitboxes.mixin.ItemDisplayEntityAccessor;
+import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -136,11 +137,11 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
                 Quaternionf rr = new Quaternionf(display.getEntityData().get(DisplayEntityAccessor.getRightRotation()));
                 Quaternionf orient = new Quaternionf().rotationYXZ(-DisplayHitboxes.DEG * display.getYRot(), DisplayHitboxes.DEG * display.getXRot(), 0.0f);
 
-                matrices.mulPose(orient);
+                matrices.mulPose(new Matrix4f().rotation(orient));
                 matrices.translate(t.x(), t.y(), t.z());
-                matrices.mulPose(lr);
+                matrices.mulPose(new Matrix4f().rotation(lr));
                 matrices.scale(s.x(), s.y(), s.z());
-                matrices.mulPose(rr);
+                matrices.mulPose(new Matrix4f().rotation(rr));
 
                 if (display instanceof Display.ItemDisplay itemDisplay) {
                     ItemStack stack = null;

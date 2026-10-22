@@ -5,6 +5,7 @@ import com.google.common.cache.CacheBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.model.geometry.BakedQuad;
+import net.minecraft.client.resources.model.geometry.ItemQuads;
 import net.minecraft.client.resources.model.cuboid.ItemTransform;
 import net.minecraft.client.renderer.item.ItemStackRenderState;
 import net.minecraft.client.renderer.texture.SpriteContents;
@@ -19,7 +20,6 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import net.tworoundcats.displayblockhitboxes.mixin.ItemRenderStateAccessor;
 import net.tworoundcats.displayblockhitboxes.mixin.LayerRenderStateAccessor;
 import org.joml.Matrix4f;
-import org.joml.Quaternionf;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -83,7 +83,8 @@ public final class ItemModelBounds {
             LayerRenderStateAccessor layer = (LayerRenderStateAccessor) (Object) layers[i];
             if (layer.dbh$getSpecialModelType() != null) continue;
 
-            List<BakedQuad> quads = layers[i].prepareQuadList();
+            ItemQuads itemQuads = layer.dbh$getQuads();
+            List<BakedQuad> quads = itemQuads == null ? List.of() : itemQuads.all();
             if (quads.isEmpty()) continue;
 
             Flat flat = layer.dbh$getUseLight() ? null : new Flat();
@@ -185,14 +186,14 @@ public final class ItemModelBounds {
         ItemDisplayContext tm = modeOf(mode);
         ItemStackRenderState state = stateFor(world, stack, tm);
 
-        matrices.mulPose(com.mojang.math.Axis.YP.rotation((float) Math.PI));
+        matrices.mulPose(new Matrix4f().rotationY((float) Math.PI));
         ItemTransform tf = transformOf(state);
         if (tf != ItemTransform.NO_TRANSFORM) {
             boolean left = mode == 1 || mode == 3;
             float ry = tf.rotation().y(), rz = tf.rotation().z();
             if (left) { ry = -ry; rz = -rz; }
             matrices.translate((left ? -1 : 1) * tf.translation().x(), tf.translation().y(), tf.translation().z());
-            matrices.mulPose(new Quaternionf().rotationXYZ(
+            matrices.mulPose(new Matrix4f().rotationXYZ(
                     tf.rotation().x() * DisplayHitboxes.DEG,
                     ry * DisplayHitboxes.DEG,
                     rz * DisplayHitboxes.DEG
