@@ -16,7 +16,6 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
-import net.tworoundcats.displayblockhitboxes.mixin.BlockDisplayEntityInvoker;
 import net.tworoundcats.displayblockhitboxes.mixin.DisplayEntityAccessor;
 import net.tworoundcats.displayblockhitboxes.mixin.ItemDisplayEntityAccessor;
 import org.joml.Matrix4f;
@@ -48,8 +47,9 @@ public final class DisplayHitboxes {
 
     public static boolean isTargetableType(net.minecraft.world.entity.EntityType<?> type) {
         DisplayHitboxConfig c = DisplayHitboxConfig.get();
-        if (type == net.minecraft.world.entity.EntityType.BLOCK_DISPLAY) return c.blockDisplayHitboxes;
-        if (type == net.minecraft.world.entity.EntityType.ITEM_DISPLAY) return c.itemDisplayHitboxes;
+        String id = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(type).getPath();
+        if (id.equals("block_display")) return c.blockDisplayHitboxes;
+        if (id.equals("item_display")) return c.itemDisplayHitboxes;
         return false;
     }
 
@@ -89,7 +89,10 @@ public final class DisplayHitboxes {
         double dz = Math.max(0.0, Math.abs(d.getZ() - (q.minZ + q.maxZ) / 2) - (q.maxZ - q.minZ) / 2);
         if (dx * dx + dy * dy + dz * dz > r * r) return false;
 
-        AABB b = entryFor(d).bounds;
+        DisplayCache cache = getCache(d);
+        cache.update(d);
+
+        AABB b = cache.worldBounds;
         if (b == null) return false;
         double x = d.getX(), y = d.getY(), z = d.getZ();
         return b.minX + x < q.maxX && b.maxX + x > q.minX
@@ -106,6 +109,11 @@ public final class DisplayHitboxes {
     }
 
     public static int sampleLight(Display display) {
+        DisplayCache cache = getCache(display);
+        if (cache.lightAge == display.tickCount && cache.lightValue != -1) {
+            return cache.lightValue;
+        }
+
         Level world = display.level();
         boolean isBlock = display instanceof Display.BlockDisplay;
         Vector3f c = isBlock ? new Vector3f(0.5f, 0.5f, 0.5f) : new Vector3f(0f, 0f, 0f);
@@ -126,7 +134,10 @@ public final class DisplayHitboxes {
                 }
             }
         }
-        return LightCoordsUtil.pack(block, sky);
+
+        cache.lightValue = LightCoordsUtil.pack(block, sky);
+        cache.lightAge = display.tickCount;
+        return cache.lightValue;
     }
 
     public static VoxelShape removeModelOffset(BlockState state, VoxelShape shape) {
@@ -146,10 +157,15 @@ public final class DisplayHitboxes {
     }
 
     public static ShapeData getAccurateShape(Display display, boolean forPicking) {
-        Matrix4f m = getBaseTransform(display);
+        return computeAccurateShape(display, getBaseTransform(display), forPicking);
+    }
 
+    private static ShapeData computeAccurateShape(Display display, Matrix4f m, boolean forPicking) {
         if (display instanceof Display.BlockDisplay blockDisplay) {
-            BlockState state = ((BlockDisplayEntityInvoker) blockDisplay).invokeGetBlockState();
+
+            Display.BlockDisplay.BlockRenderState renderState = blockDisplay.blockRenderState();
+            BlockState state = renderState != null ? renderState.blockState() : null;
+
             if (state == null || state.isAir()) return null;
 
             VoxelShape shape;
@@ -185,8 +201,8 @@ public final class DisplayHitboxes {
                 int mode = itemDisplay.getEntityData().get(ItemDisplayEntityAccessor.getItemDisplay());
                 VoxelShape shape = ItemModelBounds.getShape(display.level(), stack);
                 Matrix4f internal = ItemModelBounds.getInternalTransform(display.level(), stack, mode);
-                m.mul(internal);
-                return new ShapeData(shape, m);
+                Matrix4f combined = new Matrix4f(m).mul(internal);
+                return new ShapeData(shape, combined);
             } else {
                 return new ShapeData(Shapes.box(-0.5, -0.5, -1.0 / 32.0, 0.5, 0.5, 1.0 / 32.0), m);
             }
@@ -196,8 +212,7 @@ public final class DisplayHitboxes {
 
     private static ItemStack stackOf(Display.ItemDisplay itemDisplay) {
         try {
-            net.minecraft.world.entity.SlotAccess ref = itemDisplay.getSlot(0);
-            if (ref != null) return ref.get();
+            return itemDisplay.getItemStack();
         } catch (Exception ignored) {
         }
         return ItemStack.EMPTY;
@@ -210,99 +225,100 @@ public final class DisplayHitboxes {
         return Objects.equals(a, b);
     }
 
-    private static final class CollisionEntry {
-        final Matrix4f base;
-        final Object content;
-        final int mode;
-        final boolean accurate;
-        final List<AABB> boxes;
-        final AABB bounds;
-        final Matrix4f shapeTransform;
-        int checkedAge;
-        volatile boolean pickReady;
-        volatile ShapeData pick;
-        volatile Matrix4f pickInverse;
+    private static final Cache<Display, DisplayCache> CACHE = CacheBuilder.newBuilder().weakKeys().build();
 
-        CollisionEntry(Matrix4f base, Object content, int mode, boolean accurate, List<AABB> boxes, AABB bounds, int age, Matrix4f shapeTransform) {
-            this.base = base;
-            this.content = content;
-            this.mode = mode;
-            this.accurate = accurate;
-            this.boxes = boxes;
-            this.bounds = bounds;
-            this.checkedAge = age;
-            this.shapeTransform = shapeTransform;
-        }
-
-        ShapeData pickData(Display d) {
-            if (!pickReady) {
-                ShapeData p = getAccurateShape(d, true);
-                Matrix4f inv = null;
-                if (p != null && Math.abs(p.transform().determinant()) > 1e-6) {
-                    inv = new Matrix4f(p.transform()).invert();
-                }
-                pick = p;
-                pickInverse = inv;
-                pickReady = true;
+    private static DisplayCache getCache(Display d) {
+        try {
+            return CACHE.get(d, DisplayCache::new);
+        } catch (Exception e) {
+            DisplayCache c = CACHE.getIfPresent(d);
+            if (c == null) {
+                c = new DisplayCache();
+                CACHE.put(d, c);
             }
-            return pick;
+            return c;
         }
     }
 
-    private static final Cache<Display, CollisionEntry> COLLISION_CACHE = CacheBuilder.newBuilder().weakKeys().build();
+    private static class DisplayCache {
+        long lastTick = -1;
+        Matrix4f lastTransform = new Matrix4f();
+        Object lastContent = null;
+        boolean lastAccurate = false;
 
-    private static CollisionEntry entryFor(Display display) {
-        boolean accurate = DisplayHitboxConfig.get().accurateHitboxes;
-        CollisionEntry cached = COLLISION_CACHE.getIfPresent(display);
-        if (cached != null && cached.accurate == accurate && cached.checkedAge == display.tickCount) return cached;
+        ShapeData shapeData;
+        AABB worldBounds;
+        List<AABB> slicedBoxes;
+        Matrix4f inverse;
 
-        Matrix4f base = getBaseTransform(display);
-        Object content = null;
-        int mode = 0;
-        if (display instanceof Display.BlockDisplay blockDisplay) {
-            content = ((BlockDisplayEntityInvoker) blockDisplay).invokeGetBlockState();
-        } else if (display instanceof Display.ItemDisplay itemDisplay) {
-            content = stackOf(itemDisplay);
-            mode = itemDisplay.getEntityData().get(ItemDisplayEntityAccessor.getItemDisplay());
-        }
+        int lightAge = -1;
+        int lightValue = -1;
 
-        if (cached != null && cached.accurate == accurate && cached.mode == mode
-                && cached.base.equals(base) && sameContent(cached.content, content)) {
-            cached.checkedAge = display.tickCount;
-            return cached;
-        }
+        void update(Display display) {
+            long tick = display.level().getGameTime();
+            if (tick == lastTick) return;
+            lastTick = tick;
 
-        List<AABB> boxes = List.of();
-        AABB bounds = null;
-        Matrix4f shapeTransform = null;
-        ShapeData data = getAccurateShape(display, false);
-        if (data != null && !data.shape().isEmpty()) {
-            shapeTransform = new Matrix4f(data.transform());
-            List<AABB> out = new ArrayList<>();
-            if (accurate) {
-                ObbBoxes.decompose(data.shape().toAabbs(), data.transform(), out);
-            } else {
-                AABB w = computeBox(display, false);
-                if (w != null) out.add(w.move(-display.getX(), -display.getY(), -display.getZ()));
+            boolean accurate = DisplayHitboxConfig.get().accurateHitboxes;
+            Object content = null;
+            if (display instanceof Display.BlockDisplay bd) {
+                Display.BlockDisplay.BlockRenderState renderState = bd.blockRenderState();
+                content = renderState != null ? renderState.blockState() : null;
+            } else if (display instanceof Display.ItemDisplay id) {
+                content = stackOf(id);
             }
-            boxes = List.copyOf(out);
-            double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
-            double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
-            for (AABB b : boxes) {
-                minX = Math.min(minX, b.minX);
-                minY = Math.min(minY, b.minY);
-                minZ = Math.min(minZ, b.minZ);
-                maxX = Math.max(maxX, b.maxX);
-                maxY = Math.max(maxY, b.maxY);
-                maxZ = Math.max(maxZ, b.maxZ);
+
+            Matrix4f transform = getBaseTransform(display);
+            boolean contentChanged = !sameContent(lastContent, content) || lastAccurate != accurate;
+            boolean transformChanged = contentChanged || !lastTransform.equals(transform);
+
+            if (transformChanged || shapeData == null) {
+                lastTransform.set(transform);
+                lastContent = content instanceof ItemStack s ? s.copy() : content;
+                lastAccurate = accurate;
+
+                shapeData = computeAccurateShape(display, transform, false);
+
+                if (shapeData != null && !shapeData.shape().isEmpty()) {
+                    worldBounds = transformBox(shapeData.shape().bounds(), transform, 0, 0, 0);
+                } else {
+                    worldBounds = null;
+                }
+
+                slicedBoxes = null;
+                inverse = null;
             }
-            if (!boxes.isEmpty()) bounds = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
         }
 
-        Object stored = content instanceof ItemStack s ? s.copy() : content;
-        CollisionEntry entry = new CollisionEntry(base, stored, mode, accurate, boxes, bounds, display.tickCount, shapeTransform);
-        COLLISION_CACHE.put(display, entry);
-        return entry;
+        List<AABB> getSlicedBoxes(Display display) {
+            update(display);
+            if (slicedBoxes == null) {
+                if (shapeData == null || shapeData.shape().isEmpty()) {
+                    slicedBoxes = List.of();
+                } else {
+                    List<AABB> out = new ArrayList<>();
+                    if (DisplayHitboxConfig.get().accurateHitboxes) {
+                        ObbBoxes.decompose(shapeData.shape().toAabbs(), shapeData.transform(), out);
+                    } else {
+                        AABB w = computeBox(display, false);
+                        if (w != null) out.add(w.move(-display.getX(), -display.getY(), -display.getZ()));
+                    }
+                    slicedBoxes = out;
+                }
+            }
+            return slicedBoxes;
+        }
+
+        Matrix4f getInverse(ShapeData pickData) {
+            if (inverse == null) {
+                if (pickData != null && Math.abs(pickData.transform().determinant()) > 1e-6) {
+                    inverse = new Matrix4f(pickData.transform()).invert();
+                } else {
+                    inverse = new Matrix4f();
+                }
+            }
+            return inverse;
+        }
     }
 
     public static final class Motion {
@@ -315,7 +331,7 @@ public final class DisplayHitboxes {
     private static final Cache<Display, Motion> MOTION = CacheBuilder.newBuilder().weakKeys().build();
 
     public static void clearCache() {
-        COLLISION_CACHE.invalidateAll();
+        CACHE.invalidateAll();
         MOTION.invalidateAll();
     }
 
@@ -327,7 +343,10 @@ public final class DisplayHitboxes {
         }
         if (m.tick == tick) return m;
 
-        Matrix4f cur = entryFor(d).shapeTransform;
+        DisplayCache cache = getCache(d);
+        cache.update(d);
+        Matrix4f cur = cache.shapeData != null ? cache.shapeData.transform() : null;
+
         Matrix4f prevShape = m.shape;
         Vec3 prevPos = m.pos;
         boolean consecutive = m.tick == tick - 1 && prevShape != null && cur != null;
@@ -340,7 +359,7 @@ public final class DisplayHitboxes {
             if (m.moving) m.prevInverse = new Matrix4f(prevShape).invert();
         }
         m.prevPos = prevPos;
-        m.shape = cur;
+        m.shape = cur != null ? new Matrix4f(cur) : null;
         m.pos = d.position();
         m.tick = tick;
         return m;
@@ -355,7 +374,8 @@ public final class DisplayHitboxes {
     }
 
     public static List<AABB> getCollisionBoxes(Display display) {
-        return entryFor(display).boxes;
+        DisplayCache cache = getCache(display);
+        return cache.getSlicedBoxes(display);
     }
 
     public static AABB transformBox(AABB local, Matrix4f m, double dx, double dy, double dz) {
@@ -382,7 +402,10 @@ public final class DisplayHitboxes {
         if (display.level() == null) return null;
 
         if (!forPicking && DisplayHitboxConfig.get().accurateHitboxes) {
-            AABB b = entryFor(display).bounds;
+            DisplayCache cache = getCache(display);
+            cache.update(display);
+
+            AABB b = cache.worldBounds;
             if (b == null) return null;
             return b.move(display.getX(), display.getY(), display.getZ());
         }
@@ -404,18 +427,18 @@ public final class DisplayHitboxes {
         boolean accurate = DisplayHitboxConfig.get().accurateHitboxes;
 
         if (accurate) {
-            CollisionEntry entry = entryFor(display);
-            ShapeData data = entry.pickData(display);
+            ShapeData data = getAccurateShape(display, true);
             if (data != null && !data.shape().isEmpty()) {
-                Matrix4f inv = entry.pickInverse;
+                DisplayCache cache = getCache(display);
+                Matrix4f inv = cache.getInverse(data);
 
                 Matrix4f m = data.transform();
                 double dx = display.getX(), dy = display.getY(), dz = display.getZ();
 
                 Vector3f localEye = new Vector3f((float) (eye.x - dx), (float) (eye.y - dy), (float) (eye.z - dz));
-                if (inv != null) inv.transformPosition(localEye);
+                inv.transformPosition(localEye);
                 Vector3f localEnd = new Vector3f((float) (end.x - dx), (float) (end.y - dy), (float) (end.z - dz));
-                if (inv != null) inv.transformPosition(localEnd);
+                inv.transformPosition(localEnd);
 
                 Vec3 le = new Vec3(localEye.x, localEye.y, localEye.z);
                 Vec3 ln = new Vec3(localEnd.x, localEnd.y, localEnd.z);
