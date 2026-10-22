@@ -1,9 +1,6 @@
 package net.tworoundcats.displayblockhitboxes.mixin;
 
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.decoration.DisplayEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Box;
 import net.tworoundcats.displayblockhitboxes.DisplayHitboxConfig;
 import net.tworoundcats.displayblockhitboxes.DisplayHitboxes;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,14 +26,5 @@ public abstract class EntityCanHitMixin {
     @Inject(method = "collidesWith", at = @At("HEAD"))
     private void dbh$collidesWith(Entity other, CallbackInfoReturnable<Boolean> cir) {
         DisplayHitboxConfig.get();
-    }
-
-    @Inject(method = "getBoundingBox", at = @At("HEAD"), cancellable = true)
-    private void dbh$getBoundingBox(CallbackInfoReturnable<Box> cir) {
-        Entity self = (Entity) (Object) this;
-        if (!(self instanceof DisplayEntity display) || !DisplayHitboxes.isTargetable(display)) return;
-
-        Box box = DisplayHitboxes.computeBox(display, false);
-        if (box != null) cir.setReturnValue(box);
     }
 }
