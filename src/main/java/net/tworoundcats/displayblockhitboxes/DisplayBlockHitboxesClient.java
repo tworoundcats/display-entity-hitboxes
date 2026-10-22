@@ -39,7 +39,7 @@ public class DisplayBlockHitboxesClient implements ClientModInitializer {
     private static volatile DisplayEntity pickedDisplay;
     private static volatile boolean outlineDrawn;
     private static volatile boolean slicesDrawn;
-    private static volatile long hitboxesSeenAt = Long.MIN_VALUE;
+    private static volatile long hitboxesSeenAt = System.nanoTime() - 1_000_000_000L;
 
     public static void noteVanillaHitboxes() {
         hitboxesSeenAt = System.nanoTime();
