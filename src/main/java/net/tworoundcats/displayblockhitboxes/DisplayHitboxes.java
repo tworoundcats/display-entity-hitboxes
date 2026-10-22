@@ -2,8 +2,8 @@ package net.tworoundcats.displayblockhitboxes;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.Entity;
@@ -35,11 +35,9 @@ public final class DisplayHitboxes {
     public static final float DEG = 0.017453292F;
     private static final double MIN_THICKNESS = 0.05;
 
-    public record ShapeData(VoxelShape shape, Matrix4f transform) {
-    }
+    public record ShapeData(VoxelShape shape, Matrix4f transform) {}
 
-    private DisplayHitboxes() {
-    }
+    private DisplayHitboxes() {}
 
     public static boolean isTargetable(Entity e) {
         DisplayHitboxConfig c = DisplayHitboxConfig.get();
@@ -56,11 +54,10 @@ public final class DisplayHitboxes {
     }
 
     public static boolean hasCollision(Entity e) {
-        final Matrix4f shapeTransform;
-
         if (!isTargetable(e)) return false;
         return !e.entityTags().contains("deh_no_collision");
     }
+
     private static final java.util.Map<Level, java.util.Set<Display>> REGISTRY =
             java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
@@ -178,12 +175,7 @@ public final class DisplayHitboxes {
             return new ShapeData(shape, m);
 
         } else if (display instanceof Display.ItemDisplay itemDisplay) {
-            ItemStack stack = null;
-            try {
-                net.minecraft.world.entity.SlotAccess ref = itemDisplay.getSlot(0);
-                if (ref != null) stack = ref.get();
-            } catch (Exception ignored) {
-            }
+            ItemStack stack = stackOf(itemDisplay);
 
             if (stack == null || stack.isEmpty()) {
                 return new ShapeData(Shapes.box(-0.25, -0.25, -0.25, 0.25, 0.25, 0.25), m);
@@ -257,8 +249,7 @@ public final class DisplayHitboxes {
         }
     }
 
-    private static final Cache<Display, CollisionEntry> COLLISION_CACHE =
-            CacheBuilder.newBuilder().weakKeys().build();
+    private static final Cache<Display, CollisionEntry> COLLISION_CACHE = CacheBuilder.newBuilder().weakKeys().build();
 
     private static CollisionEntry entryFor(Display display) {
         boolean accurate = DisplayHitboxConfig.get().accurateHitboxes;
@@ -415,15 +406,16 @@ public final class DisplayHitboxes {
         if (accurate) {
             CollisionEntry entry = entryFor(display);
             ShapeData data = entry.pickData(display);
-            Matrix4f inv = entry.pickInverse;
-            if (data != null && !data.shape().isEmpty() && inv != null) {
+            if (data != null && !data.shape().isEmpty()) {
+                Matrix4f inv = entry.pickInverse;
+
                 Matrix4f m = data.transform();
                 double dx = display.getX(), dy = display.getY(), dz = display.getZ();
 
                 Vector3f localEye = new Vector3f((float) (eye.x - dx), (float) (eye.y - dy), (float) (eye.z - dz));
-                inv.transformPosition(localEye);
+                if (inv != null) inv.transformPosition(localEye);
                 Vector3f localEnd = new Vector3f((float) (end.x - dx), (float) (end.y - dy), (float) (end.z - dz));
-                inv.transformPosition(localEnd);
+                if (inv != null) inv.transformPosition(localEnd);
 
                 Vec3 le = new Vec3(localEye.x, localEye.y, localEye.z);
                 Vec3 ln = new Vec3(localEnd.x, localEnd.y, localEnd.z);
